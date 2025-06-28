@@ -7,8 +7,8 @@ import importlib
 from typing import List, Dict, Any
 import tiktoken
 from pandas import DataFrame
-from langchain.chat_models import ChatOpenAI
-from langchain.callbacks import get_openai_callback
+from langchain_community.chat_models import ChatOpenAI
+from langchain_community.callbacks import get_openai_callback
 from langchain.llms.base import BaseLLM
 from langchain.prompts import PromptTemplate
 from langchain.schema import (
@@ -32,16 +32,69 @@ import pdb
 from openai_func import *
 import json
 from z3 import *
-from tools.cities.apis import *
-from tools.flights.apis import *
-from tools.accommodations.apis import *
-from tools.attractions.apis import *
-from tools.googleDistanceMatrix.apis import *
-from tools.restaurants.apis import *
+# Use tools_small for available APIs that work with database_small
+from tools_small.attractions.apis import *
+from tools_small.flights.apis import *
+
+# Create simplified versions of missing APIs for testing
+class Cities:
+    def __init__(self):
+        print("Cities loaded (simple version).")
+    
+    def run(self, dest, org, dates):
+        # Return some sample cities for testing
+        return [dest, org, "Los Angeles", "Chicago", "Miami"]
+
+class GoogleDistanceMatrix:
+    def __init__(self):
+        print("GoogleDistanceMatrix loaded (simple version).")
+    
+    def run(self, origin, destination, mode='driving'):
+        return f"Distance from {origin} to {destination} by {mode}: 200 miles, 4 hours"
+    
+    def run_check(self, origin, destination):
+        return f"Driving from {origin} to {destination} is possible: 200 miles, 4 hours"
+    
+    def run_search(self, city):
+        return f"Available destinations from {city}: Chicago, Miami, Los Angeles"
+
+class Accommodations:
+    def __init__(self):
+        print("Accommodations loaded (simple version).")
+    
+    def run(self, city):
+        return {'NAME': [f"Hotel {city} Plaza", f"Inn {city} Central", f"Resort {city} Beach"]}
+    
+    def run_search(self, city):
+        return f"Available accommodations in {city}: Hotel Plaza, Inn Central, Resort Beach"
+    
+    def get_type_cities(self, category):
+        return f"Cities with {category} accommodations: Chicago, Miami, Los Angeles"
+
+class Restaurants:
+    def __init__(self):
+        print("Restaurants loaded (simple version).")
+    
+    def run(self, city):
+        return {'Name': [f"Restaurant {city} Grill", f"Cafe {city} Corner", f"Bistro {city} Fine"]}
+
 import time
 import pandas
 
-OPENAI_API_KEY = os.environ['OPENAI_API_KEY']
+# Import API keys from config file
+try:
+    from config import OPENAI_API_KEY, CLAUDE_API_KEY, MIXTRAL_API_KEY, GOOGLE_API_KEY
+except ImportError:
+    # Fallback to environment variables if config.py doesn't exist
+    import os
+    OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+    CLAUDE_API_KEY = os.environ.get('CLAUDE_API_KEY', '')
+    MIXTRAL_API_KEY = os.environ.get('MIXTRAL_API_KEY', '')
+    GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY', '')
+
+# Set OpenAI API key in environment
+os.environ['OPENAI_API_KEY'] = OPENAI_API_KEY
+
 # GOOGLE_API_KEY = os.environ['GOOGLE_API_KEY']
 
 actionMapping = {"FlightSearch":"flights","AttractionSearch":"attractions","GoogleDistanceMatrix":"googleDistanceMatrix","accommodationSearch":"accommodation","RestaurantSearch":"restaurants","CitySearch":"cities"}
@@ -547,6 +600,9 @@ if __name__ == '__main__':
                 pipeline(plan_json, 'interactive_large', mode, i+1)
             except Exception as e:
                 path =  f'output/interactive_large/{mode}/{i+1}/'
+                if not os.path.exists(path):
+                    os.makedirs(path)
+                    os.makedirs(path+'plans/')
                 with open(path+'plans/' + 'error.txt', 'w') as f:
                     f.write(str(e))
                 f.close()

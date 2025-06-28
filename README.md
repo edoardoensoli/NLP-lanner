@@ -14,9 +14,21 @@ Codes and Dataset for the Paper "[Large Language Models Can Solve Real-World Pla
     pip install -r requirements.txt
     ```
 
-2. The UnsatChristmas dataset is provided in `database_small` folder. You can run interactive plan repair experiment with this database.
+2. **Configure API Keys:**
+    ```powershell
+    # Copy the example configuration file
+    cp config.example.py config.py
+    
+    # Edit config.py and add your API keys
+    # Example:
+    OPENAI_API_KEY = 'your_openai_api_key_here'
+    CLAUDE_API_KEY = 'your_claude_api_key_here'  # if using Claude
+    MIXTRAL_API_KEY = 'your_mixtral_api_key_here'  # if using Mixtral
+    ```
 
-3. To run satisfiable plan generation experiment, refer to paper "TravelPlanner: A Benchmark for Real-World Planning with Language Agents" and their github repo to download their database and train/validation/test set.
+3. The UnsatChristmas dataset is provided in `database_small` folder. You can run interactive plan repair experiment with this database.
+
+4. To run satisfiable plan generation experiment, refer to paper "TravelPlanner: A Benchmark for Real-World Planning with Language Agents" and their github repo to download their database and train/validation/test set.
 
 ## Running
 #### Satisfiable Plan Solving 

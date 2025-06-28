@@ -6,11 +6,20 @@ import re
 import math
 import time
 import anthropic
-from mistralai.client import MistralClient
-from mistralai.models.chat_completion import ChatMessage
+from mistralai import Mistral
+# Updated import for newer mistralai version
+# from mistralai.models.chat_completion import ChatMessage
 
-claude_api_key_name = ...# your key
-mixtral_api_key_name = ...# your key
+# Import API keys from config file
+try:
+    from config import CLAUDE_API_KEY, MIXTRAL_API_KEY
+    claude_api_key_name = CLAUDE_API_KEY
+    mixtral_api_key_name = MIXTRAL_API_KEY
+except ImportError:
+    # Fallback to environment variables if config.py doesn't exist
+    import os
+    claude_api_key_name = os.environ.get('CLAUDE_API_KEY', '')
+    mixtral_api_key_name = os.environ.get('MIXTRAL_API_KEY', '')
 
 def GPT_response(messages, model_name):
   if model_name in ['gpt-4-turbo-preview','gpt-4-1106-preview', 'gpt-4', 'gpt-4o', 'gpt-4-32k', 'gpt-3.5-turbo-0301', 'gpt-4-0613', 'gpt-4-32k-0613', 'gpt-3.5-turbo-16k-0613', 'gpt-3.5-turbo']:
@@ -46,27 +55,27 @@ def Claude_response(messages):
 
 def Mixtral_response(messages, mode = 'normal'):
   model = 'mistral-large-latest'
-  client = MistralClient(api_key=mixtral_api_key_name)
+  client = Mistral(api_key=mixtral_api_key_name)
 
   if mode == 'json':
-    messages = [
-        ChatMessage(role="system", content="You are a helpful code assistant. Your task is to generate a valid JSON object based on the given information. Please only produce the JSON output and avoid explaining."), 
-        ChatMessage(role="user", content=messages)
+    messages_list = [
+        {"role": "system", "content": "You are a helpful code assistant. Your task is to generate a valid JSON object based on the given information. Please only produce the JSON output and avoid explaining."}, 
+        {"role": "user", "content": messages}
     ]
   elif mode == 'code':
-    messages = [
-    ChatMessage(role="system", content="You are a helpful code assistant that help with writing Python code for a user requests. Please only produce the function and avoid explaining. Do not add \ in front of _"),
-    ChatMessage(role="user", content=messages)
+    messages_list = [
+    {"role": "system", "content": "You are a helpful code assistant that help with writing Python code for a user requests. Please only produce the function and avoid explaining. Do not add \ in front of _"},
+    {"role": "user", "content": messages}
   ]
   else: 
-    messages = [
-    ChatMessage(role="user", content=messages)
+    messages_list = [
+    {"role": "user", "content": messages}
   ]
 
   # No streaming
-  chat_response = client.chat(
+  chat_response = client.chat.complete(
       model=model,
-      messages=messages,
+      messages=messages_list,
       temperature=0.0,
   )
   # import pdb; pdb.set_trace()

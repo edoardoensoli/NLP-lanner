@@ -7,8 +7,8 @@ import importlib
 from typing import List, Dict, Any
 import tiktoken
 from pandas import DataFrame
-from langchain.chat_models import ChatOpenAI
-from langchain.callbacks import get_openai_callback
+from langchain_community.chat_models import ChatOpenAI
+from langchain_community.callbacks import get_openai_callback
 from langchain.llms.base import BaseLLM
 from langchain.prompts import PromptTemplate
 from langchain.schema import (
@@ -32,15 +32,55 @@ import pdb
 from openai_func import *
 import json
 from z3 import *
-from tools.cities.apis import *
-from tools.flights.apis import *
-from tools.accommodations.apis import *
-from tools.attractions.apis import *
-from tools.googleDistanceMatrix.apis import *
-from tools.restaurants.apis import *
+# Use tools_small for available APIs
+from tools_small.attractions.apis import *
+from tools_small.flights.apis import *
+
+# Create simplified versions of missing APIs for testing
+class Cities:
+    def __init__(self):
+        print("Cities loaded (simple version).")
+    
+    def run(self, dest, org, dates):
+        # Return some sample cities for testing
+        return [dest, org, "Los Angeles", "Chicago", "Miami"]
+
+class GoogleDistanceMatrix:
+    def __init__(self):
+        print("GoogleDistanceMatrix loaded (simple version).")
+    
+    def run(self, origin, destination, mode='driving'):
+        return f"Distance from {origin} to {destination} by {mode}: 200 miles, 4 hours"
+
+class Accommodations:
+    def __init__(self):
+        print("Accommodations loaded (simple version).")
+    
+    def run(self, city):
+        return {'NAME': [f"Hotel {city} Plaza", f"Inn {city} Central", f"Resort {city} Beach"]}
+
+class Restaurants:
+    def __init__(self):
+        print("Restaurants loaded (simple version).")
+    
+    def run(self, city):
+        return {'Name': [f"Restaurant {city} Grill", f"Cafe {city} Corner", f"Bistro {city} Fine"]}
+
 import time
 
-OPENAI_API_KEY = os.environ['OPENAI_API_KEY']
+# Import API keys from config file
+try:
+    from config import OPENAI_API_KEY, CLAUDE_API_KEY, MIXTRAL_API_KEY, GOOGLE_API_KEY
+except ImportError:
+    # Fallback to environment variables if config.py doesn't exist
+    import os
+    OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+    CLAUDE_API_KEY = os.environ.get('CLAUDE_API_KEY', '')
+    MIXTRAL_API_KEY = os.environ.get('MIXTRAL_API_KEY', '')
+    GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY', '')
+
+# Set OpenAI API key in environment
+os.environ['OPENAI_API_KEY'] = OPENAI_API_KEY
 # GOOGLE_API_KEY = os.environ['GOOGLE_API_KEY']
 
 actionMapping = {"FlightSearch":"flights","AttractionSearch":"attractions","GoogleDistanceMatrix":"googleDistanceMatrix","accommodationSearch":"accommodation","RestaurantSearch":"restaurants","CitySearch":"cities"}
@@ -353,21 +393,39 @@ if __name__ == '__main__':
     parser.add_argument("--model_name", type=str, default="gpt") #'gpt', 'claude', 'mixtral'
     args = parser.parse_args()
 
+    print(f"Loading {args.set_type} dataset...")
+    
+    # Load the real TravelPlanner dataset
     if args.set_type == 'validation':
         print('validation')
-        query_data_list  = load_dataset('TravelPlanner','validation')['validation']
+        query_data_list  = load_dataset('osunlp/TravelPlanner','validation')['validation']
     elif args.set_type == 'test':
         print('test')
-        query_data_list  = load_dataset('TravelPlanner','test')['test']
+        query_data_list  = load_dataset('osunlp/TravelPlanner','test')['test']
     else:
-        query_data_list  = load_dataset('TravelPlanner','train')['train']
+        print('train')
+        query_data_list  = load_dataset('osunlp/TravelPlanner','train')['train']
 
-    numbers = [i for i in range(1,len(query_data_list)+1)]
+    print(f"Dataset loaded successfully! Number of samples: {len(query_data_list)}")
+    
+    # Run only on first few samples for testing (change this to run on full dataset)
+    test_range = 3  # Test with first 3 samples
+    numbers = [i for i in range(1, min(test_range + 1, len(query_data_list) + 1))]
+    
     with get_openai_callback() as cb:
         
-        for number in tqdm(numbers[:]):
+        for number in tqdm(numbers):
             path =  f'output/{args.set_type}/{args.model_name}/{number}/plans/'
             if not os.path.exists(path + 'plan.txt'):
-                print(number)
+                print(f"\nProcessing sample {number}")
                 query = query_data_list[number-1]['query']
-                result_plan = pipeline(query, args.set_type, args.model_name, number, "gpt-4o") #'gpt', 'claude', 'mixtral'
+                print(f"Query: {query[:100]}...")
+                try:
+                    result_plan = pipeline(query, args.set_type, args.model_name, number, "gpt-4o")
+                    print(f"Sample {number} completed successfully!")
+                except Exception as e:
+                    print(f"Error processing sample {number}: {e}")
+            else:
+                print(f"Sample {number} already processed (plan.txt exists)")
+                
+    print(f"Completed processing {len(numbers)} samples from the {args.set_type} dataset!")
