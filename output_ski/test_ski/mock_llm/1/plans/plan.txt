@@ -1,0 +1,11 @@
+SKI TRIP PLAN:
+Destination: Zermatt
+Duration: 7 days
+People: 3
+Budget: €3000
+
+Ski Resorts: Zermatt
+Ski Slopes: Available slopes at destination  
+Equipment Rental: Local rental shops
+Transportation: To be arranged
+Accommodation: Zermatt Lodge

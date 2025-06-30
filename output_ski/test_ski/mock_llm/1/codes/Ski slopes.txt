@@ -1,0 +1,3 @@
+# Slopes variables  
+variables['slope_difficulty'] = Int('slope_difficulty')
+s.add(And(variables['slope_difficulty'] >= 0, variables['slope_difficulty'] <= 2))

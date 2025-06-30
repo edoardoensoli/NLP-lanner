@@ -2,6 +2,18 @@
 
 Codes and Dataset for the Paper "[Large Language Models Can Solve Real-World Planning Rigorously with Formal Verification Tools (NAACL'25)](https://arxiv.org/pdf/2404.11891)".
 
+## Ski Planning Extension
+
+This repository has been extended with a **Ski Resort Planning** module that adapts the original travel planning framework for ski resort trip planning. The ski planning framework includes:
+
+- **Dataset**: Comprehensive ski resort data with accommodation, slopes, equipment rental, and car rental information
+- **APIs**: Specialized tools for ski resort search, slope information, equipment rental, and transportation
+- **Planning**: Automated ski trip planning with budget constraints and preferences
+
+The ski planning module is based on the same formal verification approach as the original travel planner but adapted for winter sports vacation planning. See `SKI_PLANNING_README.md` for detailed documentation.
+
+**Key distinction**: In the ski planning context, "Resort" refers to ski facilities including ski pass costs, while "Accommodation" refers specifically to lodging arrangements.
+
 ## Framework
 <img src="./imgs/fm_travelplanner_overview.png" width="800px" alt="s" />
 

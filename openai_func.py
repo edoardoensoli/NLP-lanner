@@ -12,31 +12,59 @@ from mistralai import Mistral
 
 # Import API keys from config file
 try:
-    from config import CLAUDE_API_KEY, MIXTRAL_API_KEY
+    from config import OPENAI_API_KEY, CLAUDE_API_KEY, MIXTRAL_API_KEY
+    # Set OpenAI API key immediately
+    openai.api_key = OPENAI_API_KEY
     claude_api_key_name = CLAUDE_API_KEY
     mixtral_api_key_name = MIXTRAL_API_KEY
+    print("API keys loaded in openai_func.py")
 except ImportError:
     # Fallback to environment variables if config.py doesn't exist
     import os
+    openai.api_key = os.environ.get('OPENAI_API_KEY', '')
     claude_api_key_name = os.environ.get('CLAUDE_API_KEY', '')
     mixtral_api_key_name = os.environ.get('MIXTRAL_API_KEY', '')
+    print("Using environment variables in openai_func.py")
 
 def GPT_response(messages, model_name):
   if model_name in ['gpt-4-turbo-preview','gpt-4-1106-preview', 'gpt-4', 'gpt-4o', 'gpt-4-32k', 'gpt-3.5-turbo-0301', 'gpt-4-0613', 'gpt-4-32k-0613', 'gpt-3.5-turbo-16k-0613', 'gpt-3.5-turbo']:
     #print(f'-------------------Model name: {model_name}-------------------')
-    response = openai.ChatCompletion.create(
-      model=model_name,
-      messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": messages}
-        ],
-      temperature = 0.0,
-      top_p=1,
-      frequency_penalty=0,
-      presence_penalty=0
-    )
     
-  return response.choices[0].message.content
+    # Try new OpenAI API (v1.0+) first, fallback to old API
+    try:
+        # New API (OpenAI v1.0+)
+        client = openai.OpenAI()
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": messages}
+            ],
+            temperature=0.0,
+            top_p=1,
+            frequency_penalty=0,
+            presence_penalty=0
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"New API failed, trying old API: {e}")
+        # Old API (OpenAI <v1.0) - fallback
+        response = openai.ChatCompletion.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": messages}
+            ],
+            temperature=0.0,
+            top_p=1,
+            frequency_penalty=0,
+            presence_penalty=0
+        )
+        return response.choices[0].message.content
+    
+  else:
+    print(f"Model {model_name} not supported")
+    return ""
 
 def Claude_response(messages):
   client = anthropic.Anthropic(

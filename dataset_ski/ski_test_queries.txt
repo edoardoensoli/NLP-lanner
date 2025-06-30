@@ -1,0 +1,53 @@
+# SKI PLANNER TEST QUERIES
+# Dataset-based realistic queries using actual resort data
+# Format: Natural language ski trip requests
+
+1. Plan a 3-day ski trip to Livigno for 2 people with a budget of 1800 euros, departing from Milano. We need ski equipment rental and prefer car access.
+
+2. Organize a 5-day ski vacation to Cortina d'Ampezzo for 4 people with a budget of 3500 euros. We are intermediate skiers and need accommodation for 4 beds.
+
+3. Plan a weekend ski trip to Val Gardena for 2 people, budget 1200 euros. We want to rent skis, boots and helmets, and prefer train access.
+
+4. Create a 7-day ski adventure to Madonna di Campiglio for 6 people with a budget of 5000 euros. We are advanced skiers and need SUV rental for equipment transport.
+
+5. Plan a 4-day family ski trip to Sestriere for 4 people, budget 2800 euros. We need complete ski equipment rental and prefer highly rated accommodation.
+
+6. Organize a 3-day ski trip to La Thuile for 2 experienced skiers with a budget of 1600 euros. We need red and black slopes, car rental preferred.
+
+7. Plan a 6-day ski vacation to Val Senales Glacier for 3 people, budget 3200 euros. We want to ski from October to May and need equipment rental.
+
+8. Create a 5-day ski trip to Courmayeur for 4 people with a budget of 4000 euros. We are intermediate skiers and need 4-bed accommodation with car access.
+
+9. Plan a 2-day ski weekend to Gressoney for 2 people, budget 900 euros. We need blue slopes for beginners and complete equipment rental.
+
+10. Organize a 4-day ski trip to Alta Badia for 3 people with a budget of 2500 euros. We are expert skiers looking for black slopes and premium accommodation.
+
+11. Plan a 7-day ski holiday to Kronplatz for 5 people with a budget of 4500 euros. We need red slopes, ski equipment rental, and SUV for the group.
+
+12. Create a 3-day ski trip to Champoluc for 2 people, budget 1400 euros. We want Monterosa Ski area access and prefer train transportation.
+
+13. Plan a 5-day ski vacation to Sauze d'Oulx for 4 people with a budget of 3300 euros. We need Via Lattea ski area access and equipment rental.
+
+14. Organize a 4-day ski trip to Valchiavenna Madesimo for 3 people, budget 2200 euros. We are beginners needing blue slopes and bus access option.
+
+15. Plan a 6-day ski adventure in Hemsedal, Norway for 4 people with a budget of 4800 euros. We need long season skiing and car rental for flexibility.
+
+16. Create a 3-day ski trip to Golm, Austria for 2 people, budget 1500 euros. We want mix of blue and red slopes with train access preferred.
+
+17. Plan a 5-day ski vacation to Geilosiden Geilo, Norway for 3 people with a budget of 3000 euros. We need equipment rental and hybrid car option.
+
+18. Organize a 4-day ski trip to Voss, Norway for 2 people, budget 2000 euros. We want May skiing availability and complete equipment package.
+
+19. Plan a 7-day ski holiday to Red Mountain Resort in Canada for 4 people with a budget of 6000 euros. We need extensive slopes and electric car rental.
+
+20. Create a 3-day ski trip to Hafjell, Norway for 2 expert skiers, budget 1800 euros. We want black slopes and high-rated accommodation.
+
+21. Plan a 5-day family ski vacation to Livigno for 4 people (2 adults, 2 kids) with a budget of 3800 euros. We need beginner-friendly blue slopes, complete equipment rental for all, and 4-bed accommodation with car access.
+
+22. Organize a 4-day ski trip to Cortina d'Ampezzo for 3 intermediate skiers with a budget of 2800 euros. We want a mix of blue and black slopes, equipment rental, and prefer accommodation with rating above 3.5.
+
+23. Plan a 6-day luxury ski holiday to Val Senales Glacier for 2 people with a budget of 4200 euros. We want premium accommodation, complete equipment rental, and electric car for eco-friendly travel.
+
+24. Create a 3-day budget ski trip to Madonna di Campiglio for 2 people with a maximum budget of 1300 euros. We need basic accommodation, equipment rental, and car access to the resort.
+
+25. Plan a 8-day extended ski vacation to Sestriere (Via Lattea) for 6 people with a budget of 7500 euros. We want access to the extensive 400-slope network, equipment rental for all, and multiple SUV rentals for the large group.

@@ -1,0 +1,28 @@
+# Python script for testing satisfiability of the budget constraint of a ski planning problem.
+
+# Set budget limit variable based on user input
+variables['budget_limit'] = IntVal(budget_amount)
+# Calculate total accommodation cost (resort price per day × number of days)
+total_accommodation_cost = variables['accommodation_cost']
+# Calculate total equipment rental cost (sum of all selected equipment × people × days)
+total_equipment_cost = variables['equipment_cost']
+# Calculate total car rental cost (car price per day × number of days, if car is rented)
+total_car_cost = variables['car_cost']
+# Calculate total trip cost
+variables['total_cost'] = total_accommodation_cost + total_equipment_cost + total_car_cost
+# Assert total cost is within the specified budget
+s.assert_and_track(variables['total_cost'] <= variables['budget_limit'], 'budget constraint')
+# Assert minimum budget for a realistic ski trip (at least 200 euros per person per day)
+minimum_budget = people_count * days * 200
+s.assert_and_track(variables['budget_limit'] >= minimum_budget, 'realistic budget minimum')
+# Optional: Add cost breakdown tracking for transparency
+variables['cost_breakdown'] = {
+    'accommodation': total_accommodation_cost,
+    'equipment': total_equipment_cost,
+    'car_rental': total_car_cost,
+    'total': variables['total_cost']
+}
+
+# Based on the examples above, in which the lines start with '#' is the instruction, where the line/lines below it before the next '#' is the corresponding code.
+# Follow the code structure variable names in examples
+# For this below instruction, write corresponding code and respond instruction with code only. Start with ########## Budget response########## and end with ########## Budget response ends##########.

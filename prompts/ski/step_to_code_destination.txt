@@ -1,0 +1,24 @@
+# Python script for testing satisfiability of the destination resort selection constraint of a ski planning problem.
+
+# Run SkiResorts to get all possible destination resorts in the specified country/continent
+available_resorts = SkiResorts.get_resort_by_country(destination_country)
+# Filter resorts by additional criteria if specified
+if minimum_rating_specified:
+    available_resorts = SkiResorts.get_resort_by_rating(minimum_rating)
+if access_method_specified:
+    available_resorts = SkiResorts.get_resort_by_access(preferred_access)
+# Initialize Z3 solver s
+s = Optimize()
+# Set 'resort' variable to be index of selected resort
+variables['resort'] = Int('selected_resort')
+# Assert resort selection is within valid range of available resorts
+resort_count = len(available_resorts)
+s.assert_and_track(And(variables['resort'] >= 0, variables['resort'] < resort_count), 'valid resort selection')
+# Store selected resort information for later use
+selected_resort_name = available_resorts[variables['resort']]['Resort']
+selected_resort_country = available_resorts[variables['resort']]['Country']
+selected_resort_continent = available_resorts[variables['resort']]['Continent']
+
+# Based on the examples above, in which the lines start with '#' is the instruction, where the line/lines below it before the next '#' is the corresponding code.
+# Follow the code structure variable names in examples
+# For this below instruction, write corresponding code and respond instruction with code only. Start with ########## Destination response########## and end with ########## Destination response ends##########.

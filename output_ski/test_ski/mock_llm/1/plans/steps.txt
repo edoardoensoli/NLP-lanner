@@ -1,0 +1,26 @@
+# Destination cities
+Visit the main ski resort destination.
+
+# Departure dates  
+Set departure dates for the ski trip.
+
+# Transportation methods
+Choose transportation between cities (car rental, taxi, or flight).
+
+# Car rental information
+Book car rental for ski equipment transport.
+
+# Ski resort information
+Select ski resort with appropriate slopes and facilities.
+
+# Ski slopes information
+Choose ski slopes matching skill level and preferences.
+
+# Ski equipment rental
+Rent ski equipment (skis, boots, poles, helmets).
+
+# Accommodation information
+Book ski lodge or hotel near the slopes.
+
+# Budget
+Ensure total cost stays within budget constraints.

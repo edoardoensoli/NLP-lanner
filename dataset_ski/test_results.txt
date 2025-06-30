@@ -1,0 +1,83 @@
+SKI DATASET TEST RESULTS
+========================
+
+Query 1: simulated_pass
+Query: Plan a 3-day ski trip to Livigno for 2 people with a budget of 1800 euros, departing from Milano. We need ski equipment rental and prefer car access.
+Extracted: {'resort': 'Livigno', 'days': 3, 'people': 2, 'budget': 1800, 'equipment': ['skis', 'boots', 'helmet', 'poles'], 'access': 'car'}
+--------------------------------------------------
+Query 2: simulated_pass
+Query: Organize a 5-day ski vacation to Cortina d'Ampezzo for 4 people with a budget of 3500 euros. We are intermediate skiers and need accommodation for 4 beds.
+Extracted: {'resort': 'Cortina', 'days': 5, 'people': 4, 'budget': 3500, 'level': 'intermediate'}
+--------------------------------------------------
+Query 3: simulated_pass
+Query: Plan a weekend ski trip to Val Gardena for 2 people, budget 1200 euros. We want to rent skis, boots and helmets, and prefer train access.
+Extracted: {'resort': 'Val Gardena', 'people': 2, 'budget': 1200, 'equipment': ['skis', 'boots', 'helmet'], 'access': 'train'}
+--------------------------------------------------
+Query 4: simulated_pass
+Query: Create a 7-day ski adventure to Madonna di Campiglio for 6 people with a budget of 5000 euros. We are advanced skiers and need SUV rental for equipment transport.
+Extracted: {'resort': 'Madonna di Campiglio', 'days': 7, 'people': 6, 'budget': 5000, 'level': 'advanced', 'equipment': ['skis', 'boots', 'helmet', 'poles']}
+--------------------------------------------------
+Query 5: simulated_pass
+Query: Plan a 4-day family ski trip to Sestriere for 4 people, budget 2800 euros. We need complete ski equipment rental and prefer highly rated accommodation.
+Extracted: {'resort': 'Sestriere', 'days': 4, 'people': 4, 'budget': 2800, 'equipment': ['skis', 'boots', 'helmet', 'poles']}
+--------------------------------------------------
+Query 6: simulated_pass
+Query: Organize a 3-day ski trip to La Thuile for 2 experienced skiers with a budget of 1600 euros. We need red and black slopes, car rental preferred.
+Extracted: {'resort': 'La Thuile', 'days': 3, 'budget': 1600, 'access': 'car'}
+--------------------------------------------------
+Query 7: simulated_pass
+Query: Plan a 6-day ski vacation to Val Senales Glacier for 3 people, budget 3200 euros. We want to ski from October to May and need equipment rental.
+Extracted: {'resort': 'Val Senales', 'days': 6, 'people': 3, 'budget': 3200, 'equipment': ['skis', 'boots', 'helmet', 'poles']}
+--------------------------------------------------
+Query 8: simulated_pass
+Query: Create a 5-day ski trip to Courmayeur for 4 people with a budget of 4000 euros. We are intermediate skiers and need 4-bed accommodation with car access.
+Extracted: {'resort': 'Courmayeur', 'days': 5, 'people': 4, 'budget': 4000, 'level': 'intermediate', 'access': 'car'}
+--------------------------------------------------
+Query 9: simulated_pass
+Query: Plan a 2-day ski weekend to Gressoney for 2 people, budget 900 euros. We need blue slopes for beginners and complete equipment rental.
+Extracted: {'resort': 'Gressoney', 'days': 2, 'people': 2, 'budget': 900, 'level': 'beginner', 'equipment': ['skis', 'boots', 'helmet', 'poles']}
+--------------------------------------------------
+Query 10: simulated_pass
+Query: Organize a 4-day ski trip to Valchiavenna Madesimo for 3 people, budget 2200 euros. We are beginners needing blue slopes and bus access option.
+Extracted: {'resort': 'Valchiavenna', 'days': 4, 'people': 3, 'budget': 2200, 'level': 'beginner', 'access': 'bus'}
+--------------------------------------------------
+Query 11: simulated_pass
+Query: Plan a 6-day ski adventure in Hemsedal, Norway for 4 people with a budget of 4800 euros. We need long season skiing and car rental for flexibility.
+Extracted: {'resort': 'Hemsedal', 'days': 6, 'people': 4, 'budget': 4800, 'access': 'car'}
+--------------------------------------------------
+Query 12: simulated_pass
+Query: Create a 3-day ski trip to Golm, Austria for 2 people, budget 1500 euros. We want mix of blue and red slopes with train access preferred.
+Extracted: {'resort': 'Golm', 'days': 3, 'people': 2, 'budget': 1500, 'access': 'train'}
+--------------------------------------------------
+Query 13: simulated_pass
+Query: Plan a 5-day ski vacation to Geilosiden Geilo, Norway for 3 people with a budget of 3000 euros. We need equipment rental and hybrid car option.
+Extracted: {'resort': 'Geilosiden Geilo', 'days': 5, 'people': 3, 'budget': 3000, 'equipment': ['skis', 'boots', 'helmet', 'poles'], 'access': 'car'}
+--------------------------------------------------
+Query 14: simulated_pass
+Query: Organize a 4-day ski trip to Voss, Norway for 2 people, budget 2000 euros. We want May skiing availability and complete equipment package.
+Extracted: {'resort': 'Voss', 'days': 4, 'people': 2, 'budget': 2000, 'equipment': ['skis', 'boots', 'helmet', 'poles']}
+--------------------------------------------------
+Query 15: simulated_pass
+Query: Plan a 7-day ski holiday to Red Mountain Resort in Canada for 4 people with a budget of 6000 euros. We need extensive slopes and electric car rental.
+Extracted: {'resort': 'Red Mountain', 'days': 7, 'people': 4, 'budget': 6000, 'access': 'car'}
+--------------------------------------------------
+Query 16: simulated_pass
+Query: Plan a 5-day family ski vacation to Livigno for 4 people (2 adults, 2 kids) with a budget of 3800 euros. We need beginner-friendly blue slopes, complete equipment rental for all, and 4-bed accommodation with car access.
+Extracted: {'resort': 'Livigno', 'days': 5, 'people': 4, 'budget': 3800, 'level': 'beginner', 'equipment': ['skis', 'boots', 'helmet', 'poles'], 'access': 'car'}
+--------------------------------------------------
+Query 17: simulated_pass
+Query: Organize a 4-day ski trip to Cortina d'Ampezzo for 3 intermediate skiers with a budget of 2800 euros. We want a mix of blue and black slopes, equipment rental, and prefer accommodation with rating above 3.5.
+Extracted: {'resort': 'Cortina', 'days': 4, 'budget': 2800, 'level': 'intermediate', 'equipment': ['skis', 'boots', 'helmet', 'poles']}
+--------------------------------------------------
+Query 18: simulated_pass
+Query: Plan a 6-day luxury ski holiday to Val Senales Glacier for 2 people with a budget of 4200 euros. We want premium accommodation, complete equipment rental, and electric car for eco-friendly travel.
+Extracted: {'resort': 'Val Senales', 'days': 6, 'people': 2, 'budget': 4200, 'equipment': ['skis', 'boots', 'helmet', 'poles'], 'access': 'car'}
+--------------------------------------------------
+Query 19: simulated_pass
+Query: Create a 3-day budget ski trip to Madonna di Campiglio for 2 people with a maximum budget of 1300 euros. We need basic accommodation, equipment rental, and car access to the resort.
+Extracted: {'resort': 'Madonna di Campiglio', 'days': 3, 'people': 2, 'budget': 1300, 'equipment': ['skis', 'boots', 'helmet', 'poles'], 'access': 'car'}
+--------------------------------------------------
+Query 20: simulated_pass
+Query: Plan a 8-day extended ski vacation to Sestriere (Via Lattea) for 6 people with a budget of 7500 euros. We want access to the extensive 400-slope network, equipment rental for all, and multiple SUV rentals for the large group.
+Extracted: {'resort': 'Sestriere', 'days': 8, 'people': 6, 'budget': 7500, 'equipment': ['skis', 'boots', 'helmet', 'poles']}
+--------------------------------------------------

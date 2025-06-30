@@ -71,6 +71,7 @@ import time
 # Import API keys from config file
 try:
     from config import OPENAI_API_KEY, CLAUDE_API_KEY, MIXTRAL_API_KEY, GOOGLE_API_KEY
+    print("API keys loaded from config.py")
 except ImportError:
     # Fallback to environment variables if config.py doesn't exist
     import os
@@ -78,10 +79,19 @@ except ImportError:
     CLAUDE_API_KEY = os.environ.get('CLAUDE_API_KEY', '')
     MIXTRAL_API_KEY = os.environ.get('MIXTRAL_API_KEY', '')
     GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY', '')
+    print("Using environment variables for API keys")
 
-# Set OpenAI API key in environment
+# Validate and set OpenAI API key
+if not OPENAI_API_KEY:
+    print("ERROR: OPENAI_API_KEY not found!")
+    print("Assicurati di aver configurato config.py correttamente.")
+    sys.exit(1)
+
+# Set OpenAI API key in multiple ways to ensure compatibility
 os.environ['OPENAI_API_KEY'] = OPENAI_API_KEY
-# GOOGLE_API_KEY = os.environ['GOOGLE_API_KEY']
+openai.api_key = OPENAI_API_KEY
+
+print(f"OpenAI API key configured (first 10 characters: {OPENAI_API_KEY[:10]}...)")
 
 actionMapping = {"FlightSearch":"flights","AttractionSearch":"attractions","GoogleDistanceMatrix":"googleDistanceMatrix","accommodationSearch":"accommodation","RestaurantSearch":"restaurants","CitySearch":"cities"}
 
@@ -345,20 +355,53 @@ def pipeline(query, mode, model, index, model_version = None):
         with open('prompts/solve_{}.txt'.format(query_json['days']), 'r') as f:
             codes += f.read()
         start = time.time()
-        exec(codes)
+        # Execute the code and capture the result
+        local_vars = {'s': s, 'variables': variables, 'query_json': query_json, 
+                     'CitySearch': CitySearch, 'FlightSearch': FlightSearch, 
+                     'AttractionSearch': AttractionSearch, 'DistanceSearch': DistanceSearch,
+                     'AccommodationSearch': AccommodationSearch, 'RestaurantSearch': RestaurantSearch}
+        exec(codes, globals(), local_vars)
+        
+        # Generate and save the plan
+        if 's' in local_vars and local_vars['s'].check() == sat:
+            plan = generate_as_plan(local_vars['s'], local_vars['variables'], query_json)
+            success = True
+            print(f"\n{'='*50}")
+            print("PIANO GENERATO CON SUCCESSO:")
+            print(f"{'='*50}")
+            print(plan)
+            print(f"{'='*50}\n")
+            
+            # Save the plan to file
+            with open(path+'plans/' + 'plan.txt', 'w') as f:
+                f.write(plan)
+            f.close()
+        else:
+            print("\nNO SOLUTION FOUND - Constraints cannot be satisfied")
+            with open(path+'plans/' + 'no_solution.txt', 'w') as f:
+                f.write("No solution found - constraints cannot be satisfied")
+            f.close()
+            
         exec_code = time.time()
         times.append(exec_code - start)
     except Exception as e:
         with open(path+'codes/' + 'codes.txt', 'w') as f:
             f.write(codes)
         f.close()
+        print(f"\nERROR during Z3 code execution:")
+        print(f"Errore: {str(e)}")
         with open(path+'plans/' + 'error.txt', 'w') as f:
             f.write(str(e))
             # f.write(e.args)
         f.close()
+    
+    # Save timing information
     with open(path+'plans/' + 'time.txt', 'w') as f:
         for line in times:
             f.write(f"{line}\n")
+    
+    # Return the result for further processing
+    return plan if success else None
     
 def run_code(mode, user_mode, index):
     path =  f'output/{mode}/{user_mode}/{index}/'
@@ -417,12 +460,20 @@ if __name__ == '__main__':
         for number in tqdm(numbers):
             path =  f'output/{args.set_type}/{args.model_name}/{number}/plans/'
             if not os.path.exists(path + 'plan.txt'):
-                print(f"\nProcessing sample {number}")
+                print(f"\n{'='*60}")
+                print(f"PROCESSING SAMPLE {number}")
+                print(f"{'='*60}")
                 query = query_data_list[number-1]['query']
-                print(f"Query: {query[:100]}...")
+                print(f"COMPLETE QUERY:")
+                print(f"   {query}")
+                print(f"{'='*60}")
                 try:
                     result_plan = pipeline(query, args.set_type, args.model_name, number, "gpt-4o")
-                    print(f"Sample {number} completed successfully!")
+                    if result_plan:
+                        print(f"Sample {number} completed successfully!")
+                        print(f"Plan saved in: output/{args.set_type}/{args.model_name}/{number}/plans/plan.txt")
+                    else:
+                        print(f"Sample {number} processed but no solution found")
                 except Exception as e:
                     print(f"Error processing sample {number}: {e}")
             else:

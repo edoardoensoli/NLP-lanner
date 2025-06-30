@@ -1,0 +1,32 @@
+# Python script for testing satisfiability of the ski equipment rental constraint of a ski planning problem.
+
+# Run SkiRent to get equipment rental info for the selected resort
+equipment_info = SkiRent.run_for_all_resorts(all_resorts, [selected_resort])
+# Set 'equipment_selection' variables for each equipment type (Skis, Boots, Helmet, Poles)
+variables['rent_skis'] = Bool('rent_skis')
+variables['rent_boots'] = Bool('rent_boots')
+variables['rent_helmet'] = Bool('rent_helmet')
+variables['rent_poles'] = Bool('rent_poles')
+# Get equipment rental prices for each type
+skis_price = SkiRent.get_equipment_price(equipment_info, variables['resort_index'], 'skis')
+boots_price = SkiRent.get_equipment_price(equipment_info, variables['resort_index'], 'boots')
+helmet_price = SkiRent.get_equipment_price(equipment_info, variables['resort_index'], 'helmet')
+poles_price = SkiRent.get_equipment_price(equipment_info, variables['resort_index'], 'poles')
+# Assert equipment is available at the resort (price > 0)
+s.assert_and_track(Implies(variables['rent_skis'], skis_price > 0), 'skis available')
+s.assert_and_track(Implies(variables['rent_boots'], boots_price > 0), 'boots available')
+s.assert_and_track(Implies(variables['rent_helmet'], helmet_price > 0), 'helmet available')
+s.assert_and_track(Implies(variables['rent_poles'], poles_price > 0), 'poles available')
+# Calculate total equipment rental cost for all people and all days
+variables['equipment_cost'] = (
+    If(variables['rent_skis'], skis_price * people_count * days, 0) +
+    If(variables['rent_boots'], boots_price * people_count * days, 0) +
+    If(variables['rent_helmet'], helmet_price * people_count * days, 0) +
+    If(variables['rent_poles'], poles_price * people_count * days, 0)
+)
+# Assert at least basic equipment is rented (skis and boots are essential)
+s.assert_and_track(And(variables['rent_skis'], variables['rent_boots']), 'essential equipment required')
+
+# Based on the examples above, in which the lines start with '#' is the instruction, where the line/lines below it before the next '#' is the corresponding code.
+# Follow the code structure variable names in examples
+# For this below instruction, write corresponding code and respond instruction with code only. Start with ########## Equipment response########## and end with ########## Equipment response ends##########.

@@ -1,0 +1,5 @@
+# Equipment variables
+variables['rent_skis'] = Bool('rent_skis')
+variables['rent_boots'] = Bool('rent_boots')
+variables['rent_helmet'] = Bool('rent_helmet')
+s.add(variables['rent_skis'] == True)

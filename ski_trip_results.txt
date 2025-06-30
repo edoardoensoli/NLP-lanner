@@ -1,0 +1,69 @@
+SKI TRIP PLANNER RESULTS
+==================================================
+Generated: 2025-06-30 15:19:31
+
+TRIP 1
+------------------------------
+Query: Plan a 3-day ski trip to Livigno for 2 people with a budget of 1800 euros, departing from Milano. We need ski equipment rental and prefer car access.
+Status: SUCCESS
+Destination: Livigno
+Duration: 3 days
+People: 2
+Total Cost: €1188
+Budget: €1800
+Car Rental: Yes
+Equipment Rental: Yes
+Savings: €612
+
+TRIP 2
+------------------------------
+Query: Organize a 5-day ski vacation to Cortina d'Ampezzo for 4 people with a budget of 3500 euros. We are intermediate skiers and need accommodation for 4 beds.
+Status: SUCCESS
+Destination: Cortina
+Duration: 5 days
+People: 4
+Total Cost: €2400
+Budget: €3500
+Car Rental: No
+Equipment Rental: No
+Savings: €1100
+
+TRIP 3
+------------------------------
+Query: Plan a weekend ski trip to Val Gardena for 2 people, budget 1200 euros. We want to rent skis, boots and helmets, and prefer train access.
+Status: SUCCESS
+Destination: Val Gardena
+Duration: 3 days
+People: 2
+Total Cost: €720
+Budget: €1200
+Car Rental: No
+Equipment Rental: No
+Savings: €480
+
+TRIP 4
+------------------------------
+Query: Create a 7-day ski adventure to Madonna di Campiglio for 6 people with a budget of 5000 euros. We are advanced skiers and need SUV rental for equipment transport.
+Status: OVER BUDGET
+Destination: Madonna di Campiglio
+Duration: 7 days
+People: 6
+Total Cost: €7584
+Budget: €5000
+Car Rental: Yes
+Equipment Rental: Yes
+Overage: €2584
+
+TRIP 5
+------------------------------
+Query: Plan a 4-day family ski trip to Sestriere for 4 people, budget 2800 euros. We need complete ski equipment rental and prefer highly rated accommodation.
+Status: OVER BUDGET
+Destination: Sestriere
+Duration: 4 days
+People: 4
+Total Cost: €2904
+Budget: €2800
+Car Rental: Yes
+Equipment Rental: Yes
+Overage: €104
+

@@ -1,0 +1,42 @@
+You are given a natural language query for ski resort planning. Your job is to give detailed step-by-step instructions to encode these constraints as code for a ski planning system.
+
+Here are the available ski resort services:
+- SkiResorts: accommodation with beds, prices, access methods, and ratings
+- SkiSlopes: slope information with difficulty levels, total slopes, and longest runs
+- SkiRent: equipment rental (Skis, Boots, Helmet, Poles) with daily prices
+- SkiCar: car rental (SUV, Sedan, Pick up, Cabriolet) with different fuel types and daily prices
+
+Example steps structure for ski planning:
+
+# Resort Selection #
+# Run SkiResorts to get available ski resorts in the requested destination
+# Set 'resort_index' variables for selected resort
+# Assert resort selection based on country, continent, access method, and rating requirements
+# Get accommodation info including beds, price per day, and access method
+
+# Slope Information #
+# Run SkiSlopes to get slope information for the selected resort
+# Set 'slope_difficulty' variables based on user preference (Blue/Red/Black)
+# Assert slope difficulty matches user requirements
+# Get total slopes and longest run information
+
+# Equipment Rental #
+# Run SkiRent to get equipment rental options for the selected resort
+# Set 'equipment_type' variables for each required equipment piece
+# For each equipment type, get specific price info and assert availability
+# Calculate total equipment rental cost for the specified number of people and days
+
+# Car Rental #
+# Run SkiCar to get car rental options for the selected resort
+# Set 'car_type' and 'fuel_type' variables based on user preferences
+# Assert car type and fuel type match user requirements
+# Calculate car rental cost for the specified number of days
+
+# Budget Calculation #
+# Set budget limit variable based on user input
+# Add accommodation cost (beds × price_day × days)
+# Add equipment rental cost (equipment_pieces × price_day × people × days)
+# Add car rental cost (car_price × days)
+# Assert total cost is within budget
+
+Follow this structure and generate detailed steps for the following ski planning query:

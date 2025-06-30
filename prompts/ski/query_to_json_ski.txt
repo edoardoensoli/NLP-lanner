@@ -1,0 +1,35 @@
+You are given a natural language query about ski resort planning. Convert this query into a structured JSON format that captures all the important constraints and preferences.
+
+The JSON should include the following fields:
+- "domain": always "ski" for ski-related queries
+- "destination": the country, region, or specific resort requested
+- "days": number of days for the ski trip
+- "people": number of people in the group
+- "budget": budget amount in euros (if mentioned)
+- "beds": preferred number of beds per accommodation (if mentioned)
+- "access": preferred access method ["Train", "Car", "Bus"] (if mentioned)
+- "rating": minimum rating requirement (1.0-5.0) (if mentioned)
+- "slope_difficulty": preferred slope difficulty ["Blue", "Red", "Black"] (if mentioned)
+- "equipment": required equipment types from ["Skis", "Boots", "Helmet", "Poles"] (if mentioned)
+- "car_type": preferred car type ["SUV", "Sedan", "Pick up", "Cabriolet"] (if mentioned)
+- "fuel_type": preferred fuel type ["Petrol", "Diesel", "Hybrid", "Electric"] (if mentioned)
+- "season": ski season preference (if mentioned)
+- "special_requirements": any other specific requirements
+
+Example:
+Query: "I want to plan a 5-day ski trip to Austria for 3 people with a budget of 2000 euros. We need black slopes and want to rent an electric SUV."
+
+JSON:
+{
+    "domain": "ski",
+    "destination": "Austria",
+    "days": 5,
+    "people": 3,
+    "budget": 2000,
+    "slope_difficulty": "Black",
+    "car_type": "SUV",
+    "fuel_type": "Electric",
+    "special_requirements": []
+}
+
+Now convert the following query to JSON:

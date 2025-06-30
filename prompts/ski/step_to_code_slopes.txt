@@ -1,0 +1,22 @@
+# Python script for testing satisfiability of the ski slopes constraint of a ski planning problem.
+
+# Run SkiSlopes to get slope info for the selected resort
+slope_info_difficulty, slope_info_total, slope_info_longest = SkiSlopes.run_for_all_resorts(all_resorts, [selected_resort])
+# Set 'slope_difficulty_preference' variable based on user preference (0=Blue, 1=Red, 2=Black)
+variables['slope_difficulty_preference'] = Int('slope_difficulty_preference')
+# Assert slope difficulty preference is valid (0, 1, or 2)
+s.assert_and_track(And(variables['slope_difficulty_preference'] >= 0, variables['slope_difficulty_preference'] <= 2), 'valid slope difficulty')
+# Get slope information for the selected resort
+resort_slope_difficulty = SkiSlopes.get_info(slope_info_difficulty, variables['resort_index'])
+resort_total_slopes = SkiSlopes.get_info(slope_info_total, variables['resort_index'])
+resort_longest_run = SkiSlopes.get_info(slope_info_longest, variables['resort_index'])
+# Assert resort has slopes matching the difficulty preference
+s.assert_and_track(resort_slope_difficulty == variables['slope_difficulty_preference'], 'slope difficulty match')
+# Assert resort has minimum number of slopes (at least 10 for variety)
+s.assert_and_track(resort_total_slopes >= 10, 'minimum slopes requirement')
+# Assert resort has reasonable longest run (at least 2 km)
+s.assert_and_track(resort_longest_run >= 2, 'minimum longest run')
+
+# Based on the examples above, in which the lines start with '#' is the instruction, where the line/lines below it before the next '#' is the corresponding code.
+# Follow the code structure variable names in examples
+# For this below instruction, write corresponding code and respond instruction with code only. Start with ########## Slopes response########## and end with ########## Slopes response ends##########.

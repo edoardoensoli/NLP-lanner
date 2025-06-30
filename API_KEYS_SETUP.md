@@ -34,7 +34,7 @@ This project requires API keys for various LLM services. Follow these steps to s
 
 ## Security Notes
 
-- ⚠️ **Never commit `config.py` to git** - it's already included in `.gitignore`
-- 🔒 Keep your API keys secure and don't share them
-- 💰 Monitor your API usage to avoid unexpected charges
-- 🔄 Rotate your keys regularly for better security
+- **Never commit `config.py` to git** - it's already included in `.gitignore`
+- Keep your API keys secure and don't share them
+- Monitor your API usage to avoid unexpected charges
+- Rotate your keys regularly for better security

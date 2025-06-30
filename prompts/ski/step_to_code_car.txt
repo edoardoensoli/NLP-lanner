@@ -1,0 +1,31 @@
+# Python script for testing satisfiability of the ski car rental constraint of a ski planning problem.
+
+# Run SkiCar to get car rental info for the selected resort
+car_info_type, car_info_fuel, car_info_price = SkiCar.run_for_all_resorts(all_resorts, [selected_resort])
+# Set 'car_rental' variable to indicate if car rental is needed
+variables['car_rental'] = Bool('car_rental')
+# Set 'car_type_selection' variable for car type preference (0=SUV, 1=Sedan, 2=Pick up, 3=Cabriolet)
+variables['car_type_selection'] = Int('car_type_selection')
+# Set 'fuel_type_selection' variable for fuel type preference (0=Petrol, 1=Diesel, 2=Hybrid, 3=Electric)
+variables['fuel_type_selection'] = Int('fuel_type_selection')
+# Assert car type selection is valid
+s.assert_and_track(And(variables['car_type_selection'] >= 0, variables['car_type_selection'] <= 3), 'valid car type')
+# Assert fuel type selection is valid
+s.assert_and_track(And(variables['fuel_type_selection'] >= 0, variables['fuel_type_selection'] <= 3), 'valid fuel type')
+# Get car rental information for the selected resort
+resort_car_type = SkiCar.get_info(car_info_type, variables['resort_index'])
+resort_fuel_type = SkiCar.get_info(car_info_fuel, variables['resort_index'])
+resort_car_price = SkiCar.get_info(car_info_price, variables['resort_index'])
+# Assert car type and fuel type match preferences if car rental is selected
+s.assert_and_track(Implies(variables['car_rental'], resort_car_type == variables['car_type_selection']), 'car type match')
+s.assert_and_track(Implies(variables['car_rental'], resort_fuel_type == variables['fuel_type_selection']), 'fuel type match')
+# Assert car is available at the resort if rental is selected
+s.assert_and_track(Implies(variables['car_rental'], resort_car_price > 0), 'car available')
+# Calculate car rental cost for the entire trip duration
+variables['car_cost'] = If(variables['car_rental'], resort_car_price * days, 0)
+# For mountain resorts, prefer SUV for safety (optional constraint)
+s.assert_and_track(Implies(variables['car_rental'], variables['car_type_selection'] == 0), 'prefer SUV for mountains')
+
+# Based on the examples above, in which the lines start with '#' is the instruction, where the line/lines below it before the next '#' is the corresponding code.
+# Follow the code structure variable names in examples
+# For this below instruction, write corresponding code and respond instruction with code only. Start with ########## Car response########## and end with ########## Car response ends##########.

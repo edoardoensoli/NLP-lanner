@@ -1,0 +1,25 @@
+# Python script for testing satisfiability of the ski resort constraint of a ski planning problem.
+
+# Run SkiResorts to get resort info for the destination country/continent
+resort_info_beds, resort_info_price, resort_info_access, resort_info_rating = SkiResorts.run_for_all_resorts(all_resorts, selected_resorts)
+# Set 'resort_index' variable for selected resort
+variables['resort_index'] = Int('resort_index')
+# Assert resort index is within valid range
+s.assert_and_track(And(variables['resort_index'] >= 0, variables['resort_index'] < len(selected_resorts)), 'valid resort index')
+# Get resort accommodation info including beds, price per day, access method, and rating
+resort_beds = SkiResorts.get_info(resort_info_beds, variables['resort_index'], 'beds')
+resort_price = SkiResorts.get_info(resort_info_price, variables['resort_index'], 'price')
+resort_access = SkiResorts.get_info(resort_info_access, variables['resort_index'], 'access')
+resort_rating = SkiResorts.get_info(resort_info_rating, variables['resort_index'], 'rating')
+# Assert resort meets access method requirements (0=Train, 1=Car, 2=Bus)
+s.assert_and_track(resort_access == access_method_required, 'resort access method')
+# Assert resort meets minimum rating requirements
+s.assert_and_track(resort_rating >= minimum_rating_required, 'resort rating requirement')
+# Assert resort has sufficient beds for the group
+s.assert_and_track(resort_beds >= people_count, 'sufficient beds')
+# Calculate accommodation cost for the stay
+variables['accommodation_cost'] = resort_price * days
+
+# Based on the examples above, in which the lines start with '#' is the instruction, where the line/lines below it before the next '#' is the corresponding code.
+# Follow the code structure variable names in examples
+# For this below instruction, write corresponding code and respond instruction with code only. Start with ########## Resort response########## and end with ########## Resort response ends##########.
