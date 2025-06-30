@@ -74,14 +74,14 @@ def test_ski_prompts():
     return True
 
 def show_ski_framework_structure():
-    print("\n🏗️  Ski Framework Structure:")
+    print("\n Ski Framework Structure:")
     print("""
-    📁 Ski Planning Framework
-    ├── 🗂️  tools_ski/
+     Ski Planning Framework
+    ├──  tools_ski/
     │   ├── __init__.py
     │   └── apis.py (SkiResorts, SkiSlopes, SkiRent, SkiCar)
     │
-    ├── 🗂️  dataset_ski/
+    ├──  dataset_ski/
     │   ├── resorts/resorts.csv
     │   ├── slopes/ski_slopes.csv  
     │   ├── rent/ski_rent.csv

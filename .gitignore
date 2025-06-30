@@ -197,6 +197,10 @@ database_backup/
 *.tar
 *.tar.gz
 
+# Project directories
+output/
+output_ski/
+
 # Keep only specific files that should be tracked
 !database_small/
 !prompts/

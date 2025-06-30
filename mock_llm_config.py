@@ -243,7 +243,7 @@ def set_mock_mode(enabled: bool):
     global MOCK_MODE_ENABLED
     MOCK_MODE_ENABLED = enabled
     if enabled:
-        print("🆓 Mock LLM mode ENABLED - No API costs!")
+        print("Mock LLM mode ENABLED - No API costs!")
     else:
         print("Mock LLM mode DISABLED - Using real APIs")
 
