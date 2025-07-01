@@ -1,0 +1,28 @@
+########## Slopes response##########
+# Python script for testing satisfiability of the ski slopes constraint of a ski planning problem.
+
+# Run SkiSlopes to get slope info for the selected resort
+# In an optimization context, data for all possible resorts is pre-loaded.
+# We assume slope_info_* are dictionaries mapping resort names (or IDs) to their respective values.
+# e.g., slope_info_difficulty = {'St. Anton': 2, 'Chamonix': 2, ...}
+slope_info_difficulty, slope_info_total, slope_info_longest = SkiSlopes.run_for_all_resorts(all_resorts)
+# Set 'slope_difficulty_preference' variable based on user preference (0=Blue, 1=Red, 2=Black)
+variables['slope_difficulty_preference'] = m.addVar(vtype=GRB.INTEGER, name="slope_difficulty_preference")
+# Assert slope difficulty preference is valid (0, 1, or 2)
+m.addConstr(variables['slope_difficulty_preference'] >= 0, "valid_slope_difficulty_min")
+m.addConstr(variables['slope_difficulty_preference'] <= 2, "valid_slope_difficulty_max")
+# Get slope information for the selected resort
+# In MILP, we model the selection of one resort from a list using binary variables.
+# We assume 'variables['resort_selection']' is a dict of binary variables, one for each resort,
+# and that a separate constraint ensures exactly one is selected (e.g., sum(...) == 1).
+# The symbolic lookup from Z3 is replaced by a linear expression.
+resort_slope_difficulty = gp.quicksum(slope_info_difficulty[r] * variables['resort_selection'][r] for r in all_resorts)
+resort_total_slopes = gp.quicksum(slope_info_total[r] * variables['resort_selection'][r] for r in all_resorts)
+resort_longest_run = gp.quicksum(slope_info_longest[r] * variables['resort_selection'][r] for r in all_resorts)
+# Assert resort has slopes matching the difficulty preference
+m.addConstr(resort_slope_difficulty == variables['slope_difficulty_preference'], "slope_difficulty_match")
+# Assert resort has minimum number of slopes (at least 10 for variety)
+m.addConstr(resort_total_slopes >= 10, "minimum_slopes_requirement")
+# Assert resort has reasonable longest run (at least 2 km)
+m.addConstr(resort_longest_run >= 2, "minimum_longest_run")
+########## Slopes response ends##########

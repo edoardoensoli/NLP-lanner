@@ -1,0 +1,9 @@
+\ Model SkiResortPlanning_copy
+\ LP format - for model browsing. Use MPS format to capture full model detail.
+\ Signature: 0x267ae670d660e7e8
+Minimize
+ 
+Subject To
+ realistic_budget_minimum: <= -1
+Bounds
+End

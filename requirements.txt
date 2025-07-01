@@ -10,3 +10,4 @@ z3-solver
 anthropic
 mistralai==0.4.2
 pandas
+gurobipy

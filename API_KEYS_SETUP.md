@@ -13,7 +13,7 @@ This project requires API keys for various LLM services. Follow these steps to s
 
    ```python
    # OpenAI API Key (required for GPT models)
-   OPENAI_API_KEY = 'your_actual_openai_api_key_here'
+   OPENAI_API_KEY = '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'
    
    # Claude API Key (optional, only if using Claude models)
    CLAUDE_API_KEY = 'your_actual_claude_api_key_here'

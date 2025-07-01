@@ -32,9 +32,10 @@ import pdb
 import json
 from z3 import *
 import numpy as np
+from gurobipy import Model, GRB
 
 # Use tools_ski for ski-specific APIs
-from tools_ski.apis import *
+from tools_ski.apis import SkiResorts, SkiSlopes, SkiRent  # Replace wildcard imports with explicit imports
 
 # Load ski prompts from files
 def load_ski_prompts(verbose=True):
@@ -329,24 +330,26 @@ s.add(total_cost <= query_json['budget'])"""
         return f"# Mock code for: {step_type}\npass"
 
 # Mock functions for API responses using real prompts
-def GPT_response(prompt, model_version=None, verbose=True):
-    """Mock GPT response using real prompt structure"""
-    mock_llm = MockLLM(verbose=verbose)
-    
-    if "JSON:" in prompt:
-        # Extract just the query part from the prompt
-        query_part = prompt.split('{')[-1].split('}')[0] if '{' in prompt and '}' in prompt else prompt
-        return mock_llm.query_to_json_response(query_part)
-    elif "Steps:" in prompt:
-        return mock_llm.constraint_to_step_response(prompt)
-    else:
-        # Extract step type from prompt and use real prompt templates
-        for step_type in ["Destination cities", "Departure dates", "Transportation methods", 
-                         "Car rental", "Ski resort", "Ski slopes", "Ski equipment", 
-                         "Accommodation", "Budget"]:
-            if step_type.lower() in prompt.lower():
-                return mock_llm.step_to_code_response(step_type, prompt)
-        return "# Mock code response\npass"
+def GPT_response(prompt, model_version="gpt-4", verbose=True):
+    """Real GPT response using OpenAI API"""
+    try:
+        # Ensure the API key is set
+        openai.api_key = OPENAI_API_KEY
+
+        # Call OpenAI API with the provided prompt
+        response = openai.ChatCompletion.create(
+            model=model_version,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        # Extract and return the assistant's reply
+        return response.choices[0].message.content
+    except Exception as e:  # Use generic Exception for compatibility
+        if verbose:
+            print(f"Error calling OpenAI API: {e}")
+        return "Error: Unable to get a response from the LLM."
 
 def Claude_response(prompt, verbose=True):
     """Mock Claude response using real prompt structure"""
@@ -356,21 +359,338 @@ def Mixtral_response(prompt, format_type=None, verbose=True):
     """Mock Mixtral response using real prompt structure"""
     return GPT_response(prompt, verbose=verbose)
 
-if __name__ == "__main__" or True:  # Ensure it's printed once
-    if False:  # Disable the print statement
-        print("🆓 Mock LLM functions loaded - Using real prompts, no API costs!")
+# Import the OpenAI API key from the config file
+from config import OPENAI_API_KEY
 
-def convert_to_int(real):
-    out = ToInt(real)
-    out += If(real == out, 0, 1)
-    return out
+# Ensure the script detects the API key correctly
+# Move the pipeline_ski function above its usage
+def pipeline_ski(query, mode, model_name, index, model_version=None, verbose=False):
+    """Pipeline for ski trip planning using Gurobi"""
+    path = f'output_ski/{mode}/{model_name}/{index}/'
+    if not os.path.exists(path):
+        os.makedirs(path)
+        os.makedirs(path+'codes/')
+        os.makedirs(path+'plans/')
+
+    # Load ski-specific prompts
+    with open('prompts/ski/query_to_json_ski.txt', 'r', encoding='utf-8') as file:
+        query_to_json_prompt = file.read()
+    with open('prompts/ski/constraint_to_step_ski.txt', 'r', encoding='utf-8') as file:
+        constraint_to_step_prompt = file.read()
+    with open('prompts/ski/step_to_code_resort.txt', 'r') as file:
+        step_to_code_resort_prompt = file.read()
+    with open('prompts/ski/step_to_code_slopes.txt', 'r') as file:
+        step_to_code_slopes_prompt = file.read()
+    with open('prompts/ski/step_to_code_equipment.txt', 'r') as file:
+        step_to_code_equipment_prompt = file.read()
+    with open('prompts/ski/step_to_code_car.txt', 'r') as file:
+        step_to_code_car_prompt = file.read()
+    with open('prompts/ski/step_to_code_budget.txt', 'r') as file:
+        step_to_code_budget_prompt = file.read()
+
+    step_to_code_prompts = {
+        'Resort': step_to_code_resort_prompt,
+        'Slopes': step_to_code_slopes_prompt,
+        'Equipment': step_to_code_equipment_prompt,
+        'Car': step_to_code_car_prompt,
+        'Budget': step_to_code_budget_prompt
+    }
+    # Initialize Gurobi model
+    m = Model("SkiResortPlanning")
+
+    variables = {}
+    times = []
+
+    # --- Centralized Cost Variables ---
+    # Define all cost-related variables upfront
+    accommodation_cost = m.addVar(vtype=GRB.CONTINUOUS, name="accommodation_cost")
+    equipment_cost = m.addVar(vtype=GRB.CONTINUOUS, name="equipment_cost")
+    car_cost = m.addVar(vtype=GRB.CONTINUOUS, name="car_cost")
+    total_cost = m.addVar(vtype=GRB.CONTINUOUS, name="total_cost")
+
+    # Store them in the variables dictionary for easy access
+    variables['accommodation_cost'] = accommodation_cost
+    variables['equipment_cost'] = equipment_cost
+    variables['car_cost'] = car_cost
+    variables['total_cost'] = total_cost
+    
+    # Set the main objective to minimize the total cost of the trip
+    m.setObjective(total_cost, GRB.MINIMIZE)
+
+    if verbose:
+        print("Initialized Gurobi model and cost variables.")
+    
+    plan = ''
+    success = False
+    
+    try:
+        # Step 1: Convert query to JSON
+        query_json_str = GPT_response(query_to_json_prompt + '{' + query + '}\n' + 'JSON:\n', model_version, verbose)
+        query_json = json.loads(query_json_str.replace('```json', '').replace('```', ''))
+        
+        with open(path+'plans/' + 'query.txt', 'w') as f:
+            f.write(query)
+        with open(path+'plans/' + 'query.json', 'w') as f:
+            json.dump(query_json, f)
+        
+        if verbose:
+            print('-----------------query in json format-----------------\n', query_json)
+        
+        # Step 2: Generate planning steps
+        start = time.time()
+        steps_str = GPT_response(constraint_to_step_prompt + query + '\n' + 'Steps:\n', model_version, verbose)
+        json_step = time.time()
+        times.append(json_step - start)
+        
+        with open(path+'plans/' + 'steps.txt', 'w') as f:
+            f.write(steps_str)
+        
+        steps = [s.strip() for s in steps_str.split('\n\n') if s.strip()]
+        
+        # Step 3: Process each step and build the Gurobi model
+        for step in steps:
+            if verbose:
+                print('!!!!!!!!!!STEP!!!!!!!!!!\n', step, '\n')
+
+            # --- Resort Step ---
+            if 'Resort' in step:
+                if verbose:
+                    print("Processing Resort step...")
+                # Example data (replace with actual API calls later)
+                selected_resorts = ["Resort A", "Resort B", "Resort C"]
+                resort_info_beds = [100, 200, 150]
+                resort_info_price = [300, 400, 350]
+                resort_info_access = [1, 2, 1] # 1=Car, 2=Train
+                resort_info_rating = [4.5, 4.0, 4.2]
+
+                # Parameters from query
+                access_method_required = 1 # Example: Car
+                minimum_rating_required = query_json.get('rating', 4.0)
+                people_count = query_json.get('people', 2)
+                days = query_json.get('days', 3)
+
+                # --- Gurobi Variables for Resort ---
+                resort_index = m.addVar(vtype=GRB.INTEGER, name="resort_index")
+                is_resort = [m.addVar(vtype=GRB.BINARY, name=f"is_resort_{i}") for i in range(len(selected_resorts))]
+                
+                m.addConstr(sum(is_resort) == 1, "one_resort_selected")
+                for i in range(len(selected_resorts)):
+                    m.addGenConstrIndicator(is_resort[i], True, resort_index == i, name=f"select_resort_{i}")
+
+                # --- Resort Attribute Variables ---
+                resort_beds = m.addVar(vtype=GRB.INTEGER, name="resort_beds")
+                resort_price = m.addVar(vtype=GRB.CONTINUOUS, name="resort_price")
+                resort_access = m.addVar(vtype=GRB.INTEGER, name="resort_access")
+                resort_rating = m.addVar(vtype=GRB.CONTINUOUS, name="resort_rating")
+
+                # --- Constraints to link attributes to selected resort ---
+                m.addConstr(resort_beds == sum(is_resort[i] * resort_info_beds[i] for i in range(len(selected_resorts))), "beds_assign")
+                m.addConstr(resort_price == sum(is_resort[i] * resort_info_price[i] for i in range(len(selected_resorts))), "price_assign")
+                m.addConstr(resort_access == sum(is_resort[i] * resort_info_access[i] for i in range(len(selected_resorts))), "access_assign")
+                m.addConstr(resort_rating == sum(is_resort[i] * resort_info_rating[i] for i in range(len(selected_resorts))), "rating_assign")
+
+                # --- Functional Constraints for Resort ---
+                m.addConstr(resort_access == access_method_required, "access_method")
+                # Only add rating constraint if it exists in the query
+                if minimum_rating_required is not None:
+                    m.addConstr(resort_rating >= minimum_rating_required, "min_rating")
+                m.addConstr(resort_beds >= people_count, "sufficient_beds")
+
+                # --- Cost Calculation for Resort ---
+                m.addConstr(accommodation_cost == resort_price * days, "accommodation_cost_calc")
+
+            # --- Slopes Step ---
+            elif 'Slopes' in step:
+                if verbose:
+                    print("Processing Slopes step...")
+
+                # Example slope data (should correspond to selected_resorts)
+                slope_info_difficulty = [2, 1, 1]  # 0=Blue, 1=Red, 2=Black
+                slope_info_total_runs = [50, 25, 35] # Total number of runs
+                slope_info_longest_run = [8, 5, 6] # Longest run in km
+
+                # --- Gurobi Variables for Slopes ---
+                resort_slope_difficulty = m.addVar(vtype=GRB.INTEGER, name="resort_slope_difficulty")
+                resort_total_runs = m.addVar(vtype=GRB.INTEGER, name="resort_total_runs")
+                resort_longest_run = m.addVar(vtype=GRB.INTEGER, name="resort_longest_run")
+
+                # --- Constraints to link slope attributes to the selected resort ---
+                m.addConstr(resort_slope_difficulty == sum(is_resort[i] * slope_info_difficulty[i] for i in range(len(selected_resorts))), "slope_difficulty_assign")
+                m.addConstr(resort_total_runs == sum(is_resort[i] * slope_info_total_runs[i] for i in range(len(selected_resorts))), "total_runs_assign")
+                m.addConstr(resort_longest_run == sum(is_resort[i] * slope_info_longest_run[i] for i in range(len(selected_resorts))), "longest_run_assign")
+
+                # --- Functional Constraints for Slopes ---
+                slope_difficulty_str = query_json.get('slope_difficulty')
+                if slope_difficulty_str:
+                    difficulty_map = {"Blue": 0, "Red": 1, "Black": 2}
+                    slope_difficulty_preference = difficulty_map.get(slope_difficulty_str)
+                    if slope_difficulty_preference is not None:
+                        # This constraint ensures the resort has slopes of the desired difficulty.
+                        # Note: A real-world model might check for a *minimum percentage* of such slopes.
+                        m.addConstr(resort_slope_difficulty == slope_difficulty_preference, "slope_difficulty_match")
+
+                # Add general requirements for a good ski experience
+                m.addConstr(resort_total_runs >= 20, "minimum_total_runs")
+                m.addConstr(resort_longest_run >= 3, "minimum_longest_run")
+
+            # --- Equipment Step ---
+            elif 'Equipment' in step:
+                if verbose:
+                    print("Processing Equipment step...")
+
+                # --- Gurobi Variables for Equipment ---
+                rent_skis = m.addVar(vtype=GRB.BINARY, name="rent_skis")
+                rent_boots = m.addVar(vtype=GRB.BINARY, name="rent_boots")
+                rent_helmet = m.addVar(vtype=GRB.BINARY, name="rent_helmet")
+                rent_poles = m.addVar(vtype=GRB.BINARY, name="rent_poles")
+
+                # --- Cost Data for Equipment (per person, per day) ---
+                cost_per_ski = 25
+                cost_per_boots = 15
+                cost_per_helmet = 10
+                cost_per_poles = 5
+
+                # --- Functional Constraints for Equipment ---
+                requested_equipment = query_json.get('equipment') or []
+                people_count = query_json.get('people', 2)
+                days = query_json.get('days', 3)
+                
+                # Set rental variables based on the query
+                m.addConstr(rent_skis == (1 if "Skis" in requested_equipment else 0), "skis_rental_constraint")
+                m.addConstr(rent_boots == (1 if "Boots" in requested_equipment else 0), "boots_rental_constraint")
+                m.addConstr(rent_helmet == (1 if "Helmet" in requested_equipment else 0), "helmet_rental_constraint")
+                m.addConstr(rent_poles == (1 if "Poles" in requested_equipment else 0), "poles_rental_constraint")
+
+                # --- Cost Calculation for Equipment ---
+                # This is a Gurobi linear expression for the daily cost per person
+                daily_cost_per_person_expr = (
+                    rent_skis * cost_per_ski +
+                    rent_boots * cost_per_boots +
+                    rent_helmet * cost_per_helmet +
+                    rent_poles * cost_per_poles
+                )
+                # The total equipment cost is this daily rate times the number of people and days
+                m.addConstr(equipment_cost == daily_cost_per_person_expr * people_count * days, "equipment_cost_calc")
+
+            # --- Car Step ---
+            elif 'Car' in step:
+                if verbose:
+                    print("Processing Car step...")
+
+                # --- Gurobi Variables for Car Rental ---
+                car_rental = m.addVar(vtype=GRB.BINARY, name="car_rental")
+                car_type = m.addVar(vtype=GRB.INTEGER, name="car_type") # 0: SUV, 1: Sedan, 2: Pick up, 3: Cabriolet
+                fuel_type = m.addVar(vtype=GRB.INTEGER, name="fuel_type") # 0: Petrol, 1: Diesel, 2: Hybrid, 3: Electric
+
+                # --- Mock Data for Car Rental (per day cost) ---
+                # This should correspond to the resorts
+                car_info_price = [80, 95, 85] # Daily price for a suitable car (e.g., SUV)
+
+                # --- Functional Constraints for Car Rental ---
+                requested_car_type = query_json.get('car_type')
+                requested_fuel_type = query_json.get('fuel_type')
+                days = query_json.get('days', 3)
+
+                # If a car type is specified, we must rent a car
+                if requested_car_type:
+                    m.addConstr(car_rental == 1, "force_car_rental_if_type_specified")
+                    car_type_map = {"SUV": 0, "Sedan": 1, "Pick up": 2, "Cabriolet": 3}
+                    car_type_preference = car_type_map.get(requested_car_type)
+                    if car_type_preference is not None:
+                        m.addConstr(car_type == car_type_preference, "car_type_match")
+                else:
+                    # If no car is requested, ensure car_rental is 0
+                    m.addConstr(car_rental == 0, "no_car_rental_if_not_specified")
+
+                if requested_fuel_type:
+                    fuel_type_map = {"Petrol": 0, "Diesel": 1, "Hybrid": 2, "Electric": 3}
+                    fuel_type_preference = fuel_type_map.get(requested_fuel_type)
+                    if fuel_type_preference is not None:
+                        m.addConstr(fuel_type == fuel_type_preference, "fuel_type_match")
+
+                # --- Cost Calculation for Car Rental ---
+                # Get the price for the selected resort
+                resort_car_price = m.addVar(vtype=GRB.CONTINUOUS, name="resort_car_price")
+                m.addConstr(resort_car_price == sum(is_resort[i] * car_info_price[i] for i in range(len(selected_resorts))), "car_price_assign")
+                
+                # The total car cost is the daily price times days, only if a car is rented
+                m.addConstr(car_cost == car_rental * resort_car_price * days, "car_cost_calc")
+
+            # --- Budget Step ---
+            elif 'Budget' in step:
+                if verbose:
+                    print("Processing Budget step...")
+                
+                budget_amount = query_json.get('budget')
+                people_count = query_json.get('people', 2)
+                days = query_json.get('days', 3)
+
+                if budget_amount is not None:
+                    budget_limit = float(budget_amount)
+                    
+                    # --- Total Cost Definition ---
+                    # This constraint connects the total_cost variable (the objective) to the individual cost components.
+                    m.addConstr(total_cost == accommodation_cost + equipment_cost + car_cost, "total_cost_definition")
+                    
+                    # --- Budget Constraint ---
+                    m.addConstr(total_cost <= budget_limit, "budget_constraint")
+                    
+                    # --- Realistic Budget Constraint ---
+                    # Ensures the provided budget is reasonable for the trip.
+                    minimum_budget = people_count * days * 200.0
+                    m.addConstr(budget_limit >= minimum_budget, "realistic_budget_minimum")
+                    
+                    if verbose:
+                        print(f"Added budget constraint: total_cost <= {budget_limit}")
+                        print(f"Minimum realistic budget: {minimum_budget}")
+                else:
+                    if verbose:
+                        print("No budget specified, skipping budget constraints.")
+                    # If no budget, total cost is still the sum, but with no upper limit.
+                    m.addConstr(total_cost == accommodation_cost + equipment_cost + car_cost, "total_cost_definition")
+            
+        # Step 4: Solve the Gurobi model
+        if verbose:
+            print("\n--- Solving Gurobi Model ---")
+        m.optimize()
+
+        # Step 5: Interpret and present the solution
+        if m.status == GRB.OPTIMAL:
+            selected_resort_index = int(m.getVarByName("resort_index").X)
+            resort_name = selected_resorts[selected_resort_index]
+            
+            plan = (f"Optimal solution found with Gurobi!\n"
+                    f"  - Selected Resort: {resort_name}\n"
+                    f"  - Total Cost: €{total_cost.X:.2f}\n"
+                    f"  - Accommodation Cost: €{accommodation_cost.X:.2f}\n"
+                    f"  - Equipment Cost: €{equipment_cost.X:.2f}\n"
+                    f"  - Car Rental Cost: €{car_cost.X:.2f}")
+            success = True
+        elif m.status == GRB.INFEASIBLE:
+            plan = "No solution found: The model is infeasible. Check constraints."
+            if verbose:
+                print("Computing IIS to find conflicting constraints...")
+                m.computeIIS()
+                m.write("model.ilp")
+                print("IIS written to model.ilp")
+        else:
+            plan = f"No optimal solution found. Gurobi status: {m.status}"
+
+        if verbose:
+            print(f"\n--- Gurobi Result ---\n{plan}")
+
+    except Exception as e:
+        print(f"\nERROR during Gurobi execution: {e}")
+        import traceback
+        traceback.print_exc()
+
+    return plan if success else None
 
 def generate_ski_plan(s, variables, query):
     """Generate ski plan from Z3 solution"""
     SkiResortSearch = SkiResorts()
     SkiSlopeSearch = SkiSlopes()
     SkiRentSearch = SkiRent()
-    SkiCarSearch = SkiCar()
     
     resorts = []
     slopes = []
@@ -491,186 +811,37 @@ Accommodation: {accommodation if accommodation else f"{query.get('destination', 
         print(f"Error generating ski plan: {e}")
         return f"Ski trip plan for {query['dest']} - {query['days']} days"
 
-def pipeline_ski(query, mode, model, index, model_version=None, verbose=False):
-    """Pipeline for ski trip planning using real prompt files"""
-    path = f'output_ski/{mode}/mock_llm/{index}/'
-    if not os.path.exists(path):
-        os.makedirs(path)
-        os.makedirs(path+'codes/')
-        os.makedirs(path+'plans/')
-    
-    # Load ski-specific prompts from real files (silently)
-    with open('prompts/ski/query_to_json_ski.txt', 'r', encoding='utf-8') as file:
-        query_to_json_prompt = file.read()
-    with open('prompts/ski/constraint_to_step_ski.txt', 'r', encoding='utf-8') as file:
-        constraint_to_step_prompt = file.read()
-    
-    # Load step-to-code prompts from real files
-    with open('prompts/ski/step_to_code_destination.txt', 'r', encoding='utf-8') as file:
-        step_to_code_destination_prompt = file.read()  
-    with open('prompts/ski/step_to_code_resort.txt', 'r', encoding='utf-8') as file:
-        step_to_code_resort_prompt = file.read()
-    with open('prompts/ski/step_to_code_slopes.txt', 'r', encoding='utf-8') as file:
-        step_to_code_slopes_prompt = file.read()
-    with open('prompts/ski/step_to_code_equipment.txt', 'r', encoding='utf-8') as file:
-        step_to_code_equipment_prompt = file.read()
-    with open('prompts/ski/step_to_code_car.txt', 'r', encoding='utf-8') as file:
-        step_to_code_car_prompt = file.read()
-    with open('prompts/ski/step_to_code_budget.txt', 'r', encoding='utf-8') as file:
-        step_to_code_budget_prompt = file.read()
-    
-    # Initialize ski APIs (silently)
-    SkiResortSearch = SkiResorts()
-    SkiSlopeSearch = SkiSlopes()
-    SkiRentSearch = SkiRent()
-    SkiCarSearch = SkiCar()
-    
-    s = Optimize()
-    variables = {}
-    times = []
-    
-    # Map step-to-code prompts using real files
-    step_to_code_prompts = {
-        'Destination cities': step_to_code_destination_prompt,
-        'Ski resort': step_to_code_resort_prompt,
-        'Ski slopes': step_to_code_slopes_prompt,
-        'Ski equipment': step_to_code_equipment_prompt,
-        'Car rental': step_to_code_car_prompt,
-        'Budget': step_to_code_budget_prompt,
-        'Departure dates': '',  # Can be added if needed
-        'Transportation methods': '',  # Can be added if needed  
-        'Accommodation': ''  # Can be added if needed
-    }
-    
-    if verbose:
-        print("Loaded ski prompts from real files (not hardcoded!)")
-    
-    plan = ''
-    codes = ''
-    success = False
-    
+# Ensure the main logic is executed
+if __name__ == "__main__":
+    if OPENAI_API_KEY:
+        os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+        print("SKI PLANNER - Using Real LLM (OpenAI API)")
+    else:
+        print("SKI PLANNER - Using Mock LLM (No API costs)")
+
+    # Add debug prints to trace execution flow
+    print("Starting main logic...")
+
+    # Example query for testing
+    query = "Plan a 5-day ski trip to Zermatt for 4 people with a budget of 5000 euros."
+    mode = "test"
+    model = "gpt-4"
+    index = 1
+
+    # Call the pipeline function
     try:
-        # Convert query to JSON using mock LLM
-        query_json_str = GPT_response(query_to_json_prompt + '{' + query + '}\n' + 'JSON:\n', model_version, verbose)
-        query_json = json.loads(query_json_str.replace('```json', '').replace('```', ''))
-        
-        with open(path+'plans/' + 'query.txt', 'w') as f:
-            f.write(query)
-        f.close()
-        
-        with open(path+'plans/' + 'query.json', 'w') as f:
-            json.dump(query_json, f)
-        f.close()
-        
-        if verbose:
-            print('-----------------query in json format-----------------\n', query_json)
-        
-        # Generate steps using mock LLM
-        start = time.time()
-        steps = GPT_response(constraint_to_step_prompt + query + '\n' + 'Steps:\n', model_version, verbose)
-        json_step = time.time()
-        times.append(json_step - start)
-        
-        with open(path+'plans/' + 'steps.txt', 'w') as f:
-            f.write(steps)
-        f.close()
-        
-        steps = steps.split('\n\n')
-        
-        # Process each step
-        for step in steps:
-            if verbose:
-                print('!!!!!!!!!!STEP!!!!!!!!!!\n', step, '\n')
-            try:
-                lines = step.split('# \n')[1]
-            except:
-                try:
-                    lines = step.split('#\n')[1]
-                except:
-                    lines = step
-            
-            prompt = ''
-            step_key = ''
-            for key in step_to_code_prompts.keys():
-                if key.lower() in step.lower():
-                    if verbose:
-                        print('!!!!!!!!!!KEY!!!!!!!!!!\n', key, '\n')
-                    prompt = step_to_code_prompts[key]
-                    step_key = key
-                    break
-            
-            start = time.time()
-            code = GPT_response(prompt + lines, model_version, verbose)
-            step_code = time.time()
-            times.append(step_code - start)
-            
-            code = code.replace('```python', '')
-            code = code.replace('```', '')
-            code = code.replace('\_', '_')
-            
-            # No automatic indentation for mock code - keep it clean
-            if verbose:
-                print('!!!!!!!!!!CODE!!!!!!!!!!\n', code, '\n')
-            codes += code + '\n'
-            
-            with open(path+'codes/' + f'{step_key}.txt', 'w') as f:
-                f.write(code)
-            f.close()
-        
-        # Add solver code
-        with open(f'prompts/ski/solve_ski_{query_json["days"]}.txt', 'r') as f:
-            codes += f.read()
-        
-        start = time.time()
-        # Execute the code and capture the result
-        local_vars = {
-            's': s, 'variables': variables, 'query_json': query_json,
-            'SkiResortSearch': SkiResortSearch, 'SkiSlopeSearch': SkiSlopeSearch,
-            'SkiRentSearch': SkiRentSearch, 'SkiCarSearch': SkiCarSearch
-        }
-        exec(codes, globals(), local_vars)
-        
-        # Generate and save the plan
-        if 's' in local_vars and local_vars['s'].check() == sat:
-            plan = generate_ski_plan(local_vars['s'], local_vars['variables'], query_json)
-            success = True
-            if verbose:
-                print(f"\n{'='*50}")
-                print("SKI PLAN GENERATO CON SUCCESSO:")
-                print(f"{'='*50}")
-                print(plan)
-                print(f"{'='*50}\n")
-            
-            # Save the plan to file
-            with open(path+'plans/' + 'plan.txt', 'w') as f:
-                f.write(plan)
-            f.close()
+        plan = pipeline_ski(query, mode, model, index, model_version="gpt-4", verbose=True)
+        if plan:
+            print("\nGenerated Ski Plan:\n")
+            print(plan)
         else:
-            if verbose:
-                print("\nNO SOLUTION FOUND - Constraints cannot be satisfied")
-            with open(path+'plans/' + 'no_solution.txt', 'w') as f:
-                f.write("No solution found - constraints cannot be satisfied")
-            f.close()
-        
-        exec_code = time.time()
-        times.append(exec_code - start)
-        
+            print("\nNo plan could be generated. Please check the constraints and inputs.")
     except Exception as e:
-        with open(path+'codes/' + 'codes.txt', 'w') as f:
-            f.write(codes)
-        f.close()
-        print(f"\nERROR during Z3 code execution:")
-        print(f"Error: {str(e)}")
-        with open(path+'plans/' + 'error.txt', 'w') as f:
-            f.write(str(e))
-        f.close()
-    
-    # Save timing information
-    with open(path+'plans/' + 'time.txt', 'w') as f:
-        for line in times:
-            f.write(f"{line}\n")
-    
-    return plan if success else None
+        print(f"An error occurred during execution: {e}")
+
+
+# Remove redundant Mock LLM message
+# Ensure all LLM calls use the updated GPT_response function
 
 def calculate_detailed_costs(query_json):
     """Calculate detailed costs for each service based on query parameters"""
@@ -734,6 +905,55 @@ def calculate_detailed_costs(query_json):
     
     return costs
 
+def generate_ski_plan_with_gurobi(selected_resorts, resort_info_beds, resort_info_price, resort_info_access, resort_info_rating, access_method_required, minimum_rating_required, people_count, days):
+    # Create model
+    m = Model("SkiResortPlanning")
+
+    # Decision variable: index of selected resort
+    resort_index = m.addVar(vtype=GRB.INTEGER, name="resort_index")
+
+    # Constraint: resort index is within range
+    m.addConstr((resort_index >= 0) & (resort_index < len(selected_resorts)), name="valid_resort_index")
+
+    # Add auxiliary variables to extract resort info
+    resort_beds = m.addVar(vtype=GRB.INTEGER, name="resort_beds")
+    resort_price = m.addVar(vtype=GRB.INTEGER, name="resort_price")
+    resort_access = m.addVar(vtype=GRB.INTEGER, name="resort_access")
+    resort_rating = m.addVar(vtype=GRB.INTEGER, name="resort_rating")
+
+    # Define constraints using piecewise linear or indicator constraints
+    for i in range(len(selected_resorts)):
+        m.addGenConstrIndicator((resort_index == i), True, resort_beds == resort_info_beds[i], name=f"bed_select_{i}")
+        m.addGenConstrIndicator((resort_index == i), True, resort_price == resort_info_price[i], name=f"price_select_{i}")
+        m.addGenConstrIndicator((resort_index == i), True, resort_access == resort_info_access[i], name=f"access_select_{i}")
+        m.addGenConstrIndicator((resort_index == i), True, resort_rating == resort_info_rating[i], name=f"rating_select_{i}")
+
+    # Constraint: access method matches
+    m.addConstr(resort_access == access_method_required, name="access_method")
+
+    # Constraint: minimum rating
+    m.addConstr(resort_rating >= minimum_rating_required, name="min_rating")
+
+    # Constraint: sufficient beds
+    m.addConstr(resort_beds >= people_count, name="sufficient_beds")
+
+    # Objective: calculate accommodation cost
+    accommodation_cost = m.addVar(vtype=GRB.INTEGER, name="accommodation_cost")
+    m.addConstr(accommodation_cost == resort_price * days, name="accommodation_cost_calc")
+
+    # Set objective to minimize accommodation cost
+    m.setObjective(accommodation_cost, GRB.MINIMIZE)
+
+    # Optimize the model
+    m.optimize()
+
+    # Extract results
+    if m.status == GRB.OPTIMAL:
+        selected_resort = selected_resorts[int(resort_index.X)]
+        return f"Selected resort: {selected_resort}, Cost: {accommodation_cost.X}"
+    else:
+        return "No feasible solution found."
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Ski Planner Test with Mock LLM")
     parser.add_argument("--set_type", type=str, default="test_ski")
@@ -746,7 +966,7 @@ if __name__ == '__main__':
     parser.add_argument("--query_file", type=str, help="File containing a single query to test")
     args = parser.parse_args()
 
-    print(f"SKI PLANNER - Using Mock LLM (No API costs)")
+    print("SKI PLANNER - Using Mock LLM (No API costs)")
     
     # Clean output preparation
     clean_results = [] if args.clean_output else None
@@ -754,7 +974,7 @@ if __name__ == '__main__':
     # Handle single query from command line or file
     if args.query:
         ski_queries = [args.query]
-        print(f"Single query from command line")
+        print("Single query from command line")
     elif args.query_file:
         try:
             with open(args.query_file, 'r', encoding='utf-8') as f:
@@ -823,18 +1043,18 @@ if __name__ == '__main__':
                         print(f"People: {query_json.get('people', 'N/A')}")
                         print(f"Budget: €{query_json.get('budget', 'N/A')}")
                         
-                        print(f"\nDETAILED COSTS:")
+                        print("\nDETAILED COSTS:")
                         print(f"  Resort: €{costs['resort']}")
                         print(f"  Equipment: €{costs['equipment']}")
                         if costs['car_rental'] > 0:
-                            car_type = query_json.get('car_type', 'Standard')
+                            car_type = query_json.get('car_type', 'SUV')
                             fuel_type = query_json.get('fuel_type', '')
                             fuel_str = f" ({fuel_type})" if fuel_type else ""
                             print(f"  Car Rental ({car_type}{fuel_str}): €{costs['car_rental']}")
                         if costs['transportation'] > 0:
                             print(f"  Transportation: €{costs['transportation']}")
                         print(f"  Accommodation: €{costs['accommodation']}")
-                        print(f"  ───────────────────")
+                        print("  ───────────────────")
                         print(f"  TOTAL COST: €{costs['total']}")
                         
                         # Check if within budget
@@ -857,7 +1077,4 @@ if __name__ == '__main__':
             if args.verbose:
                 print(f"Sample {number} already processed")
     
-    print(f"\nProcessing completed!")
-    
-    if args.verbose:
-        print(f"Completed processing {len(numbers)} ski samples with Mock LLM!")
+    print("\nProcessing completed!")

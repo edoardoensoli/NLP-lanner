@@ -1,0 +1,44 @@
+########## Equipment response##########
+# Python script for testing satisfiability of the ski equipment rental constraint of a ski planning problem.
+
+# Run SkiRent to get equipment rental info for the selected resort
+# In an MILP model, all data is pre-loaded. We assume 'equipment_info' is a dictionary
+# mapping each resort to a dictionary of its equipment prices.
+# e.g., equipment_info = {'St. Anton': {'skis': 25, 'boots': 15, ...}, ...}
+equipment_info = SkiRent.run_for_all_resorts(all_resorts)
+# Set 'equipment_selection' variables for each equipment type (Skis, Boots, Helmet, Poles)
+variables['rent_skis'] = m.addVar(vtype=GRB.BINARY, name="rent_skis")
+variables['rent_boots'] = m.addVar(vtype=GRB.BINARY, name="rent_boots")
+variables['rent_helmet'] = m.addVar(vtype=GRB.BINARY, name="rent_helmet")
+variables['rent_poles'] = m.addVar(vtype=GRB.BINARY, name="rent_poles")
+# Create intermediate variables to linearize the cost calculation.
+# z_item_r = 1 if we rent 'item' at resort 'r', 0 otherwise.
+# This variable connects the decision to rent an item with the decision to select a resort.
+equipment_types = ['skis', 'boots', 'helmet', 'poles']
+z = {}
+for r in all_resorts:
+    for item in equipment_types:
+        # z_item_r = rent_item * resort_selection_r
+        z[r, item] = m.addVar(vtype=GRB.BINARY, name=f"z_{item}_{r}")
+        rent_var = variables[f'rent_{item}']
+        resort_var = variables['resort_selection'][r]
+        m.addConstr(z[r, item] <= rent_var, f"link_z_{item}_{r}_A")
+        m.addConstr(z[r, item] <= resort_var, f"link_z_{item}_{r}_B")
+        m.addConstr(z[r, item] >= rent_var + resort_var - 1, f"link_z_{item}_{r}_C")
+# Get equipment rental prices for each type
+# Prices are now part of the final cost expression.
+# Assert equipment is available at the resort (price > 0)
+# We enforce that z_item_r can only be 1 if the item is available (price > 0) at resort r.
+for r in all_resorts:
+    for item in equipment_types:
+        if equipment_info[r][item] <= 0:
+            m.addConstr(z[r, item] == 0, f"availability_{item}_{r}")
+# Calculate total equipment rental cost for all people and all days
+cost_per_item_resort = gp.quicksum(z[r, item] * equipment_info[r][item]
+                                   for r in all_resorts for item in equipment_types)
+variables['equipment_cost'] = m.addVar(lb=0, name="equipment_cost")
+m.addConstr(variables['equipment_cost'] == cost_per_item_resort * people_count * days, "equipment_cost_definition")
+# Assert at least basic equipment is rented (skis and boots are essential)
+m.addConstr(variables['rent_skis'] == 1, "essential_equipment_skis")
+m.addConstr(variables['rent_boots'] == 1, "essential_equipment_boots")
+########## Equipment response ends##########

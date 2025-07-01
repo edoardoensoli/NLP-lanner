@@ -6,7 +6,7 @@ from z3 import *
 import numpy as np
 
 class SkiResorts:
-    def __init__(self, path="dataset_ski/resorts/resorts.csv"):
+    def __init__(self, path="database_small/resorts/resorts.csv"):
         self.path = path
         # Resort,Country,Continent,Season,Beds,Price_day,Access,Rating
         self.data = pd.read_csv(self.path).dropna()
@@ -109,8 +109,12 @@ class SkiResorts:
         else:
             return Select(info_array, resort_idx)
 
+    def get_all_resorts_info(self):
+        """Returns all resort information from the CSV file."""
+        return self.data.to_dict('records')
+
 class SkiSlopes:
-    def __init__(self, path="dataset_ski/slopes/ski_slopes.csv"):
+    def __init__(self, path='dataset_ski/slopes/slopes.csv'):
         self.path = path
         # ID,Resort,Country,Continent,Difficult_Slope,Total_Slopes,Longest_Run
         self.data = pd.read_csv(self.path).dropna()
@@ -172,8 +176,12 @@ class SkiSlopes:
         """Get slope information for a specific resort."""
         return Select(info_array, resort_idx)
 
+    def get_all_slopes_info(self):
+        """Returns all slope information from the CSV file."""
+        return self.data.to_dict('records')
+
 class SkiRent:
-    def __init__(self, path="dataset_ski/rent/ski_rent.csv"):
+    def __init__(self, path="database_small/equipment/equipment.csv"):
         self.path = path
         # Resort,Country,Continent,Equipment,Price_day
         self.data = pd.read_csv(self.path).dropna()
@@ -224,8 +232,12 @@ class SkiRent:
         """Get equipment rental price for a specific resort and equipment type."""
         return Select(equipment_arrays[equipment_type], resort_idx)
 
+    def get_all_equipment_info(self):
+        """Returns all equipment rental information from the CSV."""
+        return self.data.to_dict(orient='records')
+
 class SkiCar:
-    def __init__(self, path="dataset_ski/car/ski_car.csv"):
+    def __init__(self, path="database_small/cars/cars.csv"):
         self.path = path
         # Resort,Country,Continent,Type,Fuel,Price_day
         self.data = pd.read_csv(self.path).dropna()
@@ -295,3 +307,7 @@ class SkiCar:
     def get_info(self, info_array, resort_idx):
         """Get car rental information for a specific resort."""
         return Select(info_array, resort_idx)
+
+    def get_all_cars_info(self):
+        """Returns all car rental information from the CSV."""
+        return self.data.to_dict(orient='records')

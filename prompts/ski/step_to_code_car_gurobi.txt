@@ -1,0 +1,37 @@
+########## Car response##########
+# Python script for testing satisfiability of the ski car rental constraint of a ski planning problem.
+
+# Run SkiCar to get car rental info for the selected resort
+# In an MILP model, all data is pre-loaded. We assume car_info_* are dictionaries
+# mapping each resort to its available car type, fuel type, and price.
+car_info_type, car_info_fuel, car_info_price = SkiCar.run_for_all_resorts(all_resorts)
+# Set 'car_rental' variable to indicate if car rental is needed
+variables['car_rental'] = m.addVar(vtype=GRB.BINARY, name="car_rental")
+# Set 'car_type_selection' variable for car type preference (0=SUV, 1=Sedan, 2=Pick up, 3=Cabriolet)
+variables['car_type_selection'] = m.addVar(vtype=GRB.INTEGER, name="car_type_selection")
+# Set 'fuel_type_selection' variable for fuel type preference (0=Petrol, 1=Diesel, 2=Hybrid, 3=Electric)
+variables['fuel_type_selection'] = m.addVar(vtype=GRB.INTEGER, name="fuel_type_selection")
+# Assert car type selection is valid
+m.addConstr(variables['car_type_selection'] >= 0, "valid_car_type_min")
+m.addConstr(variables['car_type_selection'] <= 3, "valid_car_type_max")
+# Assert fuel type selection is valid
+m.addConstr(variables['fuel_type_selection'] >= 0, "valid_fuel_type_min")
+m.addConstr(variables['fuel_type_selection'] <= 3, "valid_fuel_type_max")
+# Get car rental information for the selected resort
+# These expressions link the selected resort's properties to single variables.
+resort_car_type = gp.quicksum(car_info_type[r] * variables['resort_selection'][r] for r in all_resorts)
+resort_fuel_type = gp.quicksum(car_info_fuel[r] * variables['resort_selection'][r] for r in all_resorts)
+resort_car_price = gp.quicksum(car_info_price[r] * variables['resort_selection'][r] for r in all_resorts)
+# Assert car type and fuel type match preferences if car rental is selected
+# Gurobi's indicator constraints are used to model the 'Implies' logic.
+m.addConstr((variables['car_rental'] == 1) >> (resort_car_type == variables['car_type_selection']), "car_type_match")
+m.addConstr((variables['car_rental'] == 1) >> (resort_fuel_type == variables['fuel_type_selection']), "fuel_type_match")
+# Assert car is available at the resort if rental is selected
+m.addConstr((variables['car_rental'] == 1) >> (resort_car_price >= 1), "car_available")
+# Calculate car rental cost for the entire trip duration
+variables['car_cost'] = m.addVar(lb=0, name="car_cost")
+m.addConstr((variables['car_rental'] == 1) >> (variables['car_cost'] == resort_car_price * days), "car_cost_if_rented")
+m.addConstr((variables['car_rental'] == 0) >> (variables['car_cost'] == 0), "car_cost_if_not_rented")
+# For mountain resorts, prefer SUV for safety (optional constraint)
+m.addConstr((variables['car_rental'] == 1) >> (variables['car_type_selection'] == 0), "prefer_suv_for_mountains")
+########## Car response ends##########

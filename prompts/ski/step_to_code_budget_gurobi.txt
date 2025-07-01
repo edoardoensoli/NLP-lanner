@@ -1,0 +1,28 @@
+########## Budget response##########
+# Set budget limit variable based on user input
+# In Gurobi, the budget limit is a constant parameter, not a model variable.
+budget_limit = budget_amount
+# Calculate total accommodation cost (resort price per day × number of days)
+total_accommodation_cost = variables['accommodation_cost']
+# Calculate total equipment rental cost (sum of all selected equipment × people × days)
+total_equipment_cost = variables['equipment_cost']
+# Calculate total car rental cost (car price per day × number of days, if car is rented)
+total_car_cost = variables['car_cost']
+# Calculate total trip cost
+variables['total_cost'] = m.addVar(lb=0, name="total_cost")
+m.addConstr(variables['total_cost'] == total_accommodation_cost + total_equipment_cost + total_car_cost, "total_cost_definition")
+# Assert total cost is within the specified budget
+m.addConstr(variables['total_cost'] <= budget_limit, "budget_constraint")
+# Assert minimum budget for a realistic ski trip (at least 200 euros per person per day)
+minimum_budget = people_count * days * 200
+m.addConstr(budget_limit >= minimum_budget, "realistic_budget_minimum")
+# Optional: Add cost breakdown tracking for transparency
+# In Gurobi, cost breakdown is retrieved after solving by querying the .X attribute of variables.
+# Example (to be used after m.optimize()):
+# cost_breakdown = {
+#     'accommodation': variables['accommodation_cost'].X,
+#     'equipment': variables['equipment_cost'].X,
+#     'car_rental': variables['car_cost'].X,
+#     'total': variables['total_cost'].X
+# }
+########## Budget response ends##########
