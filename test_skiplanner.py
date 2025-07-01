@@ -760,7 +760,7 @@ if __name__ == '__main__':
             with open(args.query_file, 'r', encoding='utf-8') as f:
                 query_from_file = f.read().strip()
             ski_queries = [query_from_file]
-            print(f"📄 Single query from file: {args.query_file}")
+            print(f"Single query from file: {args.query_file}")
         except FileNotFoundError:
             print(f"File {args.query_file} not found!")
             sys.exit(1)
@@ -772,7 +772,7 @@ if __name__ == '__main__':
         try:
             from dataset_ski.ski_test_queries import SKI_TEST_QUERIES
             ski_queries = [q["query"] for q in SKI_TEST_QUERIES[:args.max_queries]]
-            print(f"📊 Using {len(ski_queries)} queries from dataset")
+            print(f"Using {len(ski_queries)} queries from dataset")
         except ImportError:
             print("Dataset queries not found, using default queries")
             ski_queries = [
