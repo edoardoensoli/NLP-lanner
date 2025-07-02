@@ -1,0 +1,10 @@
+# Ski trip solver for 4 days
+s.push()
+if s.check() == sat:
+    print("4-day ski trip solution found!")
+    success = True
+    variables['ski_solution'] = s.model()
+else:
+    print("No solution found for 4-day ski trip with given constraints")
+    success = False
+s.pop()
