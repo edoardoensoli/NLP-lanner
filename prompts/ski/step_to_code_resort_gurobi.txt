@@ -1,0 +1,38 @@
+#testing gurobi 
+
+from gurobipy import Model, GRB
+
+# Create model
+m = Model("SkiResortPlanning")
+
+# Decision variable: index of selected resort
+resort_index = m.addVar(vtype=GRB.INTEGER, name="resort_index")
+
+# Constraint: resort index is within range
+m.addConstr((resort_index >= 0) & (resort_index < len(selected_resorts)), name="valid_resort_index")
+
+# Add auxiliary variables to extract resort info
+resort_beds = m.addVar(vtype=GRB.INTEGER, name="resort_beds")
+resort_price = m.addVar(vtype=GRB.INTEGER, name="resort_price")
+resort_access = m.addVar(vtype=GRB.INTEGER, name="resort_access")
+resort_rating = m.addVar(vtype=GRB.INTEGER, name="resort_rating")
+
+# Assume resort_info_* are Python lists, define constraints using piecewise linear or indicator constraints
+for i in range(len(selected_resorts)):
+    m.addGenConstrIndicator((resort_index == i), True, resort_beds == resort_info_beds[i], name=f"bed_select_{i}")
+    m.addGenConstrIndicator((resort_index == i), True, resort_price == resort_info_price[i], name=f"price_select_{i}")
+    m.addGenConstrIndicator((resort_index == i), True, resort_access == resort_info_access[i], name=f"access_select_{i}")
+    m.addGenConstrIndicator((resort_index == i), True, resort_rating == resort_info_rating[i], name=f"rating_select_{i}")
+
+# Constraint: access method matches
+m.addConstr(resort_access == access_method_required, name="access_method")
+
+# Constraint: minimum rating
+m.addConstr(resort_rating >= minimum_rating_required, name="min_rating")
+
+# Constraint: sufficient beds
+m.addConstr(resort_beds >= people_count, name="sufficient_beds")
+
+# Objective: calculate accommodation cost (can be used in objective or constraint)
+accommodation_cost = m.addVar(vtype=GRB.INTEGER, name="accommodation_cost")
+m.addConstr(accommodation_cost == resort_price * days, name="accommodation_cost_calc")
