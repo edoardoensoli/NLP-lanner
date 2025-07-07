@@ -1,11 +1,14 @@
-import re, string, os, sys
-sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..")))
-sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "tools/planner")))
-sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../tools/planner")))
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
+import re, string, os, sys, time, json, argparse, pdb
 import importlib
-from typing import List, Dict, Any
 import tiktoken
+import requests
+import pandas as pd
+import numpy as np
+from typing import List, Dict, Any
+from dotenv import load_dotenv
+from datetime import datetime
+from tqdm import tqdm
+from datasets import load_dataset
 from pandas import DataFrame
 from langchain_community.chat_models import ChatOpenAI
 from langchain_community.callbacks import get_openai_callback
@@ -16,26 +19,71 @@ from langchain.schema import (
     HumanMessage,
     SystemMessage
 )
-from utils.func import load_line_json_data, save_file
-import sys
-import json
-import openai
-import time
-import pandas as pd
-from datetime import datetime
-from tqdm import tqdm
 from langchain_google_genai import ChatGoogleGenerativeAI
-import argparse
-from datasets import load_dataset
-import os
-import pdb
-import json
+from utils.func import load_line_json_data, save_file
 from z3 import *
-import numpy as np
 from gurobipy import Model, GRB
 
+sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..")))
+sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "tools/planner")))
+sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../tools/planner")))
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
+# Load environment variables
+load_dotenv()
+
 # Use tools_ski for ski-specific APIs
-from tools_ski.apis import SkiResorts, SkiSlopes, SkiRent  # Replace wildcard imports with explicit imports
+from tools_ski.apis import SkiResorts, SkiSlopes, SkiRent, SkiCar  # Add SkiCar import
+
+# GitHub Models API Client
+class LLMClient:
+    def __init__(self, model_name="gpt-4o-mini"):
+        self.model_name = model_name
+        self.token = os.getenv("GITHUB_TOKEN")
+        if not self.token:
+            raise ValueError("GitHub token not found. Please set the GITHUB_TOKEN environment variable.")
+        self.base_url = "https://models.inference.ai.azure.com"
+        self.headers = {
+            'Authorization': f'Bearer {self.token}',
+            'Content-Type': 'application/json'
+        }
+
+    def _query_api(self, prompt):
+        url = f"{self.base_url}/chat/completions"
+        
+        payload = {
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant designed to extract information from user queries and generate planning code."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "model": self.model_name,
+            "temperature": 0.7,
+            "max_tokens": 1500,
+        }
+        
+        try:
+            response = requests.post(url, headers=self.headers, json=payload)
+            response.raise_for_status()  # Raise an exception for bad status codes
+            data = response.json()
+            return data['choices'][0]['message']['content']
+        except requests.exceptions.RequestException as e:
+            print(f"Error calling LLM API: {e}")
+            return None
+
+# Initialize global LLM client
+try:
+    llm_client = LLMClient()
+    print("🚀 Real LLM initialized - Using GitHub Models API")
+except ValueError as e:
+    print(f"Warning: {e}")
+    llm_client = None
+    print("🆓 Falling back to Mock LLM")
 
 # Load ski prompts from files
 def load_ski_prompts(verbose=True):
@@ -163,10 +211,25 @@ class MockLLM:
         elif "blue" in query_lower or "beginner" in query_lower or "easy" in query_lower or "not expert" in query_lower or "not experienced" in query_lower:
             slope_difficulty = "Blue"
         
-        # Extract equipment with better detection - handle partial equipment rental
+        # Extract equipment with better detection - only for explicit ski equipment requests
         equipment = []
         equipment_people = None
-        if "equipment" in query_lower or "rental" in query_lower or "rent" in query_lower:
+        
+        # Only trigger equipment if explicitly mentioned or ski-specific rental terms
+        ski_equipment_patterns = [
+            r'\bequipment\b',
+            r'\bski\s+rental\b',
+            r'\brent\s+ski\b',
+            r'\bski\s+equipment\b',
+            r'\brental\s+equipment\b',
+            r'\brent\s+equipment\b',
+            r'\brent\s+skis\b'
+        ]
+        
+        equipment_requested = any(re.search(pattern, query_lower) for pattern in ski_equipment_patterns)
+        
+        if equipment_requested:
+            print("Equipment rental detected in query")
             # Check if equipment is for specific number of people
             eq_people_match = re.search(r'equipment.*?(\d+)\s*person', query_lower)
             if eq_people_match:
@@ -183,6 +246,8 @@ class MockLLM:
                     equipment.append("Helmet")
                 if "pole" in query_lower:
                     equipment.append("Poles")
+        else:
+            print("No equipment rental requested in query")
         
         # Extract budget - set a reasonable default if not specified
         budget = 3000  # Default for 7-day Switzerland trip
@@ -330,40 +395,82 @@ s.add(total_cost <= query_json['budget'])"""
         return f"# Mock code for: {step_type}\npass"
 
 # Mock functions for API responses using real prompts
-def GPT_response(prompt, model_version="gpt-4", verbose=True):
-    """Real GPT response using OpenAI API"""
-    try:
-        # Ensure the API key is set
-        openai.api_key = OPENAI_API_KEY
-
-        # Call OpenAI API with the provided prompt
-        response = openai.ChatCompletion.create(
-            model=model_version,
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        # Extract and return the assistant's reply
-        return response.choices[0].message.content
-    except Exception as e:  # Use generic Exception for compatibility
+def GPT_response(prompt, model_version="gpt-4o-mini", verbose=True):
+    """Real GPT response using GitHub Models API"""
+    if llm_client is not None:
+        try:
+            if verbose:
+                print("Using Real GitHub Models API")
+            response = llm_client._query_api(prompt)
+            if response:
+                return response
+            else:
+                if verbose:
+                    print("API call failed, falling back to mock response")
+                return get_mock_response(prompt)
+        except Exception as e:
+            if verbose:
+                print(f"Error calling GitHub Models API: {e}")
+            return get_mock_response(prompt)
+    else:
         if verbose:
-            print(f"Error calling OpenAI API: {e}")
-        return "Error: Unable to get a response from the LLM."
+            print("Using Mock LLM (no API available)")
+        return get_mock_response(prompt)
+
+def get_mock_response(prompt):
+    """Fallback mock response when API is not available"""
+    mock_llm = MockLLM(verbose=False)
+    
+    if "JSON:" in prompt:
+        # Extract just the query part from the prompt
+        query_part = prompt.split('{')[-1].split('}')[0] if '{' in prompt and '}' in prompt else prompt
+        return mock_llm.query_to_json_response(query_part)
+    elif "Steps:" in prompt:
+        return mock_llm.constraint_to_step_response(prompt)
+    else:
+        # Extract step type from prompt and use real prompt templates
+        for step_type in ["Destination cities", "Departure dates", "Transportation methods", 
+                         "Car rental", "Ski resort", "Ski slopes", "Ski equipment", 
+                         "Accommodation", "Budget"]:
+            if step_type.lower() in prompt.lower():
+                return mock_llm.step_to_code_response(step_type, prompt)
+        return "# Mock code response\npass"
 
 def Claude_response(prompt, verbose=True):
-    """Mock Claude response using real prompt structure"""
-    return GPT_response(prompt, verbose=verbose)
+    """Claude response using GitHub Models API or fallback to mock"""
+    return GPT_response(prompt, "deepseek-r1", verbose=verbose)
 
 def Mixtral_response(prompt, format_type=None, verbose=True):
-    """Mock Mixtral response using real prompt structure"""
-    return GPT_response(prompt, verbose=verbose)
+    """Mixtral response using GitHub Models API or fallback to mock"""
+    return GPT_response(prompt, "jambda-1.5-large", verbose=verbose)
 
-# Import the OpenAI API key from the config file
-from config import OPENAI_API_KEY
+# Ensure the main logic is executed
+if __name__ == "__main__":
+    print("SKI PLANNER - Using Real GitHub Models API (Gurobi version)")
 
-# Ensure the script detects the API key correctly
-# Move the pipeline_ski function above its usage
+    # Add debug prints to trace execution flow
+    print("Starting main logic...")
+
+    # Example query for testing
+    query = "Plan a 5-day ski trip to Zermatt for 4 people with a budget of 5000 euros."
+    mode = "test"
+    model = "gpt-4o-mini"
+    index = 1
+
+    # Call the pipeline function
+    try:
+        plan = pipeline_ski(query, mode, model, index, model_version="gpt-4o-mini", verbose=True)
+        if plan:
+            print("\nGenerated Ski Plan:\n")
+            print(plan)
+        else:
+            print("\nNo plan could be generated. Please check the constraints and inputs.")
+    except Exception as e:
+        print(f"An error occurred during execution: {e}")
+
+
+# Remove redundant Mock LLM message
+# Ensure all LLM calls use the updated GPT_response function
 def pipeline_ski(query, mode, model_name, index, model_version=None, verbose=False):
     """Pipeline for ski trip planning using Gurobi"""
     path = f'output_ski/{mode}/{model_name}/{index}/'
@@ -419,6 +526,8 @@ def pipeline_ski(query, mode, model_name, index, model_version=None, verbose=Fal
 
     if verbose:
         print("Initialized Gurobi model and cost variables.")
+        print("🎯 Objective: Minimize total cost (accommodation + equipment + car rental)")
+        print("🔧 Gurobi will search for the optimal (cheapest) combination of choices")
     
     plan = ''
     success = False
@@ -428,9 +537,9 @@ def pipeline_ski(query, mode, model_name, index, model_version=None, verbose=Fal
         query_json_str = GPT_response(query_to_json_prompt + '{' + query + '}\n' + 'JSON:\n', model_version, verbose)
         query_json = json.loads(query_json_str.replace('```json', '').replace('```', ''))
         
-        with open(path+'plans/' + 'query.txt', 'w') as f:
+        with open(path+'plans/' + 'query.txt', 'w', encoding='utf-8') as f:
             f.write(query)
-        with open(path+'plans/' + 'query.json', 'w') as f:
+        with open(path+'plans/' + 'query.json', 'w', encoding='utf-8') as f:
             json.dump(query_json, f)
         
         if verbose:
@@ -442,7 +551,7 @@ def pipeline_ski(query, mode, model_name, index, model_version=None, verbose=Fal
         json_step = time.time()
         times.append(json_step - start)
         
-        with open(path+'plans/' + 'steps.txt', 'w') as f:
+        with open(path+'plans/' + 'steps.txt', 'w', encoding='utf-8') as f:
             f.write(steps_str)
         
         steps = [s.strip() for s in steps_str.split('\n\n') if s.strip()]
@@ -456,22 +565,74 @@ def pipeline_ski(query, mode, model_name, index, model_version=None, verbose=Fal
             if 'Resort' in step:
                 if verbose:
                     print("Processing Resort step...")
-                # Example data (replace with actual API calls later)
-                selected_resorts = ["Resort A", "Resort B", "Resort C"]
-                resort_info_beds = [100, 200, 150]
-                resort_info_price = [300, 400, 350]
-                resort_info_access = [1, 2, 1] # 1=Car, 2=Train
-                resort_info_rating = [4.5, 4.0, 4.2]
+                
+                # Initialize API to get real resort data
+                ski_resort_api = SkiResorts()
+                destination = query_json.get('destination', 'Livigno')
+                
+                # Get real resort data from database
+                resort_df = ski_resort_api.run(destination)
+                
+                if isinstance(resort_df, str):  # No results found
+                    # Fallback to search by country/continent
+                    if destination.lower() in ['livigno', 'cortina', 'val gardena']:
+                        resort_df = ski_resort_api.get_resort_by_country('Italy')
+                    elif destination.lower() in ['zermatt', 'st. moritz', 'verbier']:
+                        resort_df = ski_resort_api.get_resort_by_country('Switzerland') 
+                    else:
+                        resort_df = ski_resort_api.get_resort_by_continent('Europe')
+                
+                if isinstance(resort_df, str):  # Still no results
+                    if verbose:
+                        print(f"⚠️  No resort data found for {destination}, using fallback data")
+                    # Use minimal fallback
+                    selected_resorts = [destination]
+                    resort_info_beds = [100]
+                    resort_info_price = [200]
+                    resort_info_access = [1]  # Car
+                    resort_info_rating = [4.0]
+                else:
+                    # Use real dataset with variety for optimization
+                    if len(resort_df) > 10:
+                        # Sample different price ranges for optimization
+                        resort_df_sorted = resort_df.sort_values('Price_day')
+                        # Take budget, mid-range, and luxury options
+                        indices = [0, len(resort_df)//3, 2*len(resort_df)//3, len(resort_df)-1]
+                        if len(resort_df) > 5:
+                            indices.append(len(resort_df)//2)  # Add middle option
+                        resort_df = resort_df_sorted.iloc[indices].reset_index(drop=True)
+                    
+                    selected_resorts = resort_df['Resort'].tolist()
+                    resort_info_beds = resort_df['Beds'].tolist()
+                    resort_info_price = resort_df['Price_day'].tolist()
+                    
+                    # Convert access method to numeric
+                    access_map = {'Car': 1, 'Train': 2, 'Bus': 3}
+                    resort_info_access = [access_map.get(access, 1) for access in resort_df['Access']]
+                    resort_info_rating = resort_df['Rating'].tolist()
 
                 # Parameters from query
-                access_method_required = 1 # Example: Car
-                minimum_rating_required = query_json.get('rating', 4.0)
+                access_method_required = 1  # Default: Car
+                if query_json.get('access') == 'Train':
+                    access_method_required = 2
+                elif query_json.get('access') == 'Bus':
+                    access_method_required = 3
+                    
+                minimum_rating_required = query_json.get('rating', 3.5)  # Lower default for more options
                 people_count = query_json.get('people', 2)
                 days = query_json.get('days', 3)
 
                 # --- Gurobi Variables for Resort ---
                 resort_index = m.addVar(vtype=GRB.INTEGER, name="resort_index")
                 is_resort = [m.addVar(vtype=GRB.BINARY, name=f"is_resort_{i}") for i in range(len(selected_resorts))]
+                
+                if verbose:
+                    print(f"🏨 Resort optimization: {len(selected_resorts)} resort options from real dataset")
+                    for i, resort in enumerate(selected_resorts):
+                        price = resort_info_price[i] 
+                        rating = resort_info_rating[i]
+                        beds = resort_info_beds[i]
+                        print(f"   Option {i+1}: {resort} - €{price}/day (⭐{rating:.1f}, 🛏️{beds} beds)")
                 
                 m.addConstr(sum(is_resort) == 1, "one_resort_selected")
                 for i in range(len(selected_resorts)):
@@ -490,10 +651,15 @@ def pipeline_ski(query, mode, model_name, index, model_version=None, verbose=Fal
                 m.addConstr(resort_rating == sum(is_resort[i] * resort_info_rating[i] for i in range(len(selected_resorts))), "rating_assign")
 
                 # --- Functional Constraints for Resort ---
-                m.addConstr(resort_access == access_method_required, "access_method")
-                # Only add rating constraint if it exists in the query
-                if minimum_rating_required is not None:
-                    m.addConstr(resort_rating >= minimum_rating_required, "min_rating")
+                # More flexible access constraint - allow car or train for most queries
+                if query_json.get('car_type') or 'car' in query_json.get('query', '').lower():
+                    m.addConstr(resort_access == 1, "car_access_required")  # Force car access if car requested
+                else:
+                    # Allow flexible access but prefer car/train over bus
+                    m.addConstr(resort_access <= 2, "prefer_car_or_train")
+                    
+                # Rating constraint
+                m.addConstr(resort_rating >= minimum_rating_required, "min_rating")
                 m.addConstr(resort_beds >= people_count, "sufficient_beds")
 
                 # --- Cost Calculation for Resort ---
@@ -504,10 +670,45 @@ def pipeline_ski(query, mode, model_name, index, model_version=None, verbose=Fal
                 if verbose:
                     print("Processing Slopes step...")
 
-                # Example slope data (should correspond to selected_resorts)
-                slope_info_difficulty = [2, 1, 1]  # 0=Blue, 1=Red, 2=Black
-                slope_info_total_runs = [50, 25, 35] # Total number of runs
-                slope_info_longest_run = [8, 5, 6] # Longest run in km
+                # Initialize API to get real slope data
+                ski_slopes_api = SkiSlopes()
+                
+                # Get slope data for the selected resorts
+                slope_info_difficulty = []
+                slope_info_total_runs = []
+                slope_info_longest_run = []
+                
+                difficulty_map = {'Blue': 0, 'Red': 1, 'Black': 2}
+                
+                for resort in selected_resorts:
+                    slope_df = ski_slopes_api.run(resort)
+                    
+                    if isinstance(slope_df, str):  # No data found
+                        # Use reasonable defaults based on resort type
+                        slope_info_difficulty.append(1)  # Red (intermediate)
+                        slope_info_total_runs.append(30)  # Average number
+                        slope_info_longest_run.append(5)  # Average length
+                    else:
+                        # Use real data - take average/most common values
+                        if len(slope_df) > 0:
+                            # Most common difficulty level
+                            common_difficulty = slope_df['Difficult_Slope'].mode().iloc[0]
+                            slope_info_difficulty.append(difficulty_map.get(common_difficulty, 1))
+                            
+                            # Average total slopes and longest run
+                            slope_info_total_runs.append(int(slope_df['Total_Slopes'].mean()))
+                            slope_info_longest_run.append(int(slope_df['Longest_Run'].mean()))
+                        else:
+                            # Fallback defaults
+                            slope_info_difficulty.append(1)
+                            slope_info_total_runs.append(30)
+                            slope_info_longest_run.append(5)
+                
+                if verbose:
+                    print(f"📊 Slope data loaded for {len(selected_resorts)} resorts from real dataset")
+                    for i, resort in enumerate(selected_resorts):
+                        diff_name = ['Blue', 'Red', 'Black'][slope_info_difficulty[i]]
+                        print(f"   {resort}: {diff_name} slopes, {slope_info_total_runs[i]} total runs, {slope_info_longest_run[i]}km longest")
 
                 # --- Gurobi Variables for Slopes ---
                 resort_slope_difficulty = m.addVar(vtype=GRB.INTEGER, name="resort_slope_difficulty")
@@ -522,21 +723,50 @@ def pipeline_ski(query, mode, model_name, index, model_version=None, verbose=Fal
                 # --- Functional Constraints for Slopes ---
                 slope_difficulty_str = query_json.get('slope_difficulty')
                 if slope_difficulty_str:
-                    difficulty_map = {"Blue": 0, "Red": 1, "Black": 2}
                     slope_difficulty_preference = difficulty_map.get(slope_difficulty_str)
                     if slope_difficulty_preference is not None:
-                        # This constraint ensures the resort has slopes of the desired difficulty.
-                        # Note: A real-world model might check for a *minimum percentage* of such slopes.
-                        m.addConstr(resort_slope_difficulty == slope_difficulty_preference, "slope_difficulty_match")
+                        # Allow some flexibility - can choose same or easier difficulty
+                        m.addConstr(resort_slope_difficulty <= slope_difficulty_preference, "slope_difficulty_match")
 
                 # Add general requirements for a good ski experience
-                m.addConstr(resort_total_runs >= 20, "minimum_total_runs")
-                m.addConstr(resort_longest_run >= 3, "minimum_longest_run")
+                m.addConstr(resort_total_runs >= 15, "minimum_total_runs")  # Lower requirement for more options
+                m.addConstr(resort_longest_run >= 2, "minimum_longest_run")  # Lower requirement for more options
 
             # --- Equipment Step ---
             elif 'Equipment' in step:
                 if verbose:
                     print("Processing Equipment step...")
+
+                # Initialize API to get real equipment rental data
+                ski_rent_api = SkiRent()
+                destination = query_json.get('destination', 'Livigno')
+                
+                # Get real equipment pricing data
+                rent_df = ski_rent_api.run(destination)
+                
+                if isinstance(rent_df, str):  # No data found for specific destination
+                    # Try to get European data as fallback
+                    all_data = ski_rent_api.data
+                    rent_df = all_data[all_data['Continent'] == 'Europe'].head(20)  # Sample European prices
+                
+                # Extract real pricing for each equipment type
+                equipment_prices = {}
+                equipment_types = ['Skis', 'Boots', 'Helmet', 'Poles']
+                
+                for equipment_type in equipment_types:
+                    if isinstance(rent_df, str):
+                        # Fallback pricing
+                        fallback_prices = {'Skis': 25, 'Boots': 15, 'Helmet': 10, 'Poles': 5}
+                        equipment_prices[equipment_type] = fallback_prices[equipment_type]
+                    else:
+                        equipment_data = rent_df[rent_df['Equipment'] == equipment_type]
+                        if len(equipment_data) > 0:
+                            # Use average price for this equipment type
+                            equipment_prices[equipment_type] = int(equipment_data['Price_day'].mean())
+                        else:
+                            # Fallback for missing equipment
+                            fallback_prices = {'Skis': 35, 'Boots': 20, 'Helmet': 15, 'Poles': 8}
+                            equipment_prices[equipment_type] = fallback_prices[equipment_type]
 
                 # --- Gurobi Variables for Equipment ---
                 rent_skis = m.addVar(vtype=GRB.BINARY, name="rent_skis")
@@ -544,22 +774,66 @@ def pipeline_ski(query, mode, model_name, index, model_version=None, verbose=Fal
                 rent_helmet = m.addVar(vtype=GRB.BINARY, name="rent_helmet")
                 rent_poles = m.addVar(vtype=GRB.BINARY, name="rent_poles")
 
-                # --- Cost Data for Equipment (per person, per day) ---
-                cost_per_ski = 25
-                cost_per_boots = 15
-                cost_per_helmet = 10
-                cost_per_poles = 5
+                # --- Real Cost Data for Equipment (per person, per day) ---
+                cost_per_ski = equipment_prices['Skis']
+                cost_per_boots = equipment_prices['Boots']
+                cost_per_helmet = equipment_prices['Helmet']
+                cost_per_poles = equipment_prices['Poles']
+
+                if verbose:
+                    print("⛷️  Equipment optimization: 4 equipment types available (real pricing)")
+                    print(f"   Skis: €{cost_per_ski}/person/day")
+                    print(f"   Boots: €{cost_per_boots}/person/day") 
+                    print(f"   Helmet: €{cost_per_helmet}/person/day")
+                    print(f"   Poles: €{cost_per_poles}/person/day")
+                    print("   🎯 Gurobi will choose optimal equipment combination to minimize cost")
 
                 # --- Functional Constraints for Equipment ---
                 requested_equipment = query_json.get('equipment') or []
                 people_count = query_json.get('people', 2)
                 days = query_json.get('days', 3)
                 
-                # Set rental variables based on the query
-                m.addConstr(rent_skis == (1 if "Skis" in requested_equipment else 0), "skis_rental_constraint")
-                m.addConstr(rent_boots == (1 if "Boots" in requested_equipment else 0), "boots_rental_constraint")
-                m.addConstr(rent_helmet == (1 if "Helmet" in requested_equipment else 0), "helmet_rental_constraint")
-                m.addConstr(rent_poles == (1 if "Poles" in requested_equipment else 0), "poles_rental_constraint")
+                # Check if equipment rental is actually requested in the query using the same logic as earlier
+                query_text = query_json.get('query', '').lower()
+                ski_equipment_patterns = [
+                    r'\bequipment\b',
+                    r'\bski\s+rental\b',
+                    r'\brent\s+ski\b',
+                    r'\bski\s+equipment\b',
+                    r'\brental\s+equipment\b',
+                    r'\brent\s+equipment\b',
+                    r'\brent\s+skis\b'
+                ]
+                equipment_requested = any(re.search(pattern, query_text) for pattern in ski_equipment_patterns) or len(requested_equipment) > 0
+                
+                if equipment_requested:
+                    if verbose:
+                        print("   Equipment rental detected in query - adding equipment constraints")
+                    
+                    # If equipment is requested, enforce specific items
+                    if "Skis" in requested_equipment or 'ski' in query_text:
+                        m.addConstr(rent_skis == 1, "skis_rental_requested")
+                    
+                    if "Boots" in requested_equipment or 'boot' in query_text:
+                        m.addConstr(rent_boots == 1, "boots_rental_requested")
+                    
+                    if "Helmet" in requested_equipment or 'helmet' in query_text:
+                        m.addConstr(rent_helmet == 1, "helmet_rental_requested")
+                    
+                    if "Poles" in requested_equipment or 'pole' in query_text:
+                        m.addConstr(rent_poles == 1, "poles_rental_requested")
+                    
+                    # If "equipment" is mentioned generally, include basic ski equipment
+                    if 'equipment' in query_text and not requested_equipment:
+                        m.addConstr(rent_skis == 1, "basic_skis_for_equipment")
+                        m.addConstr(rent_boots == 1, "basic_boots_for_equipment")
+                        if verbose:
+                            print("   General equipment request - including skis and boots")
+                else:
+                    if verbose:
+                        print("   No equipment rental mentioned in query - equipment is optional")
+                    # If no equipment is mentioned, make everything optional (Gurobi will optimize based on cost)
+                    # No constraints needed - variables default to 0 (no rental)
 
                 # --- Cost Calculation for Equipment ---
                 # This is a Gurobi linear expression for the daily cost per person
@@ -577,14 +851,50 @@ def pipeline_ski(query, mode, model_name, index, model_version=None, verbose=Fal
                 if verbose:
                     print("Processing Car step...")
 
+                # Initialize API to get real car rental data
+                ski_car_api = SkiCar()
+                destination = query_json.get('destination', 'Livigno')
+                
+                # Get real car rental pricing for each resort
+                car_info_price = []
+                car_type_options = []
+                fuel_type_options = []
+                
+                for resort in selected_resorts:
+                    car_df = ski_car_api.run(resort)
+                    
+                    if isinstance(car_df, str):  # No data found for this resort
+                        # Use European average as fallback
+                        all_car_data = ski_car_api.data
+                        car_df = all_car_data[all_car_data['Continent'] == 'Europe']
+                    
+                    if isinstance(car_df, str) or len(car_df) == 0:
+                        # Final fallback
+                        car_info_price.append(75)  # Average European price
+                        car_type_options.append(['SUV', 'Sedan'])
+                        fuel_type_options.append(['Petrol', 'Diesel'])
+                    else:
+                        # Use real data - average price for this resort
+                        avg_price = int(car_df['Price_day'].mean())
+                        car_info_price.append(avg_price)
+                        
+                        # Available car types and fuel types at this resort
+                        car_type_options.append(car_df['Type'].unique().tolist())
+                        fuel_type_options.append(car_df['Fuel'].unique().tolist())
+
                 # --- Gurobi Variables for Car Rental ---
                 car_rental = m.addVar(vtype=GRB.BINARY, name="car_rental")
                 car_type = m.addVar(vtype=GRB.INTEGER, name="car_type") # 0: SUV, 1: Sedan, 2: Pick up, 3: Cabriolet
                 fuel_type = m.addVar(vtype=GRB.INTEGER, name="fuel_type") # 0: Petrol, 1: Diesel, 2: Hybrid, 3: Electric
 
-                # --- Mock Data for Car Rental (per day cost) ---
-                # This should correspond to the resorts
-                car_info_price = [80, 95, 85] # Daily price for a suitable car (e.g., SUV)
+                if verbose:
+                    print("🚗 Car rental optimization: Real pricing from dataset")
+                    for i, resort in enumerate(selected_resorts):
+                        available_types = ', '.join(car_type_options[i][:3])  # Show first 3 types
+                        available_fuels = ', '.join(fuel_type_options[i][:3])  # Show first 3 fuel types
+                        print(f"   {resort}: €{car_info_price[i]}/day (Types: {available_types}, Fuels: {available_fuels})")
+                    print(f"   Price range: €{min(car_info_price)}-€{max(car_info_price)}/day")
+                    print("   🎯 Gurobi will decide if car rental is cost-effective")
 
                 # --- Functional Constraints for Car Rental ---
                 requested_car_type = query_json.get('car_type')
@@ -599,8 +909,9 @@ def pipeline_ski(query, mode, model_name, index, model_version=None, verbose=Fal
                     if car_type_preference is not None:
                         m.addConstr(car_type == car_type_preference, "car_type_match")
                 else:
-                    # If no car is requested, ensure car_rental is 0
-                    m.addConstr(car_rental == 0, "no_car_rental_if_not_specified")
+                    # If no car is requested, make it optional (let Gurobi decide based on cost)
+                    # Remove the constraint that forces car_rental to 0
+                    pass
 
                 if requested_fuel_type:
                     fuel_type_map = {"Petrol": 0, "Diesel": 1, "Hybrid": 2, "Electric": 3}
@@ -609,7 +920,7 @@ def pipeline_ski(query, mode, model_name, index, model_version=None, verbose=Fal
                         m.addConstr(fuel_type == fuel_type_preference, "fuel_type_match")
 
                 # --- Cost Calculation for Car Rental ---
-                # Get the price for the selected resort
+                # Get the price for the selected resort using real data
                 resort_car_price = m.addVar(vtype=GRB.CONTINUOUS, name="resort_car_price")
                 m.addConstr(resort_car_price == sum(is_resort[i] * car_info_price[i] for i in range(len(selected_resorts))), "car_price_assign")
                 
@@ -649,8 +960,22 @@ def pipeline_ski(query, mode, model_name, index, model_version=None, verbose=Fal
                     # If no budget, total cost is still the sum, but with no upper limit.
                     m.addConstr(total_cost == accommodation_cost + equipment_cost + car_cost, "total_cost_definition")
             
-        # Step 4: Solve the Gurobi model
+        # Step 4: Set objective and solve the Gurobi model
         if verbose:
+            print("\n--- Optimization Summary ---")
+            print("📊 Gurobi Optimization Problem Setup:")
+            print(f"   • Resort options: {len(selected_resorts) if 'selected_resorts' in locals() else 'Multiple'}")
+            print("   • Equipment choices: 4 types (skis, boots, helmet, poles)")
+            print("   • Car rental: Optional (cost vs. no rental)")
+            print("   • Constraints: Budget limits, functional requirements")
+            print("\n--- Setting Optimization Objective ---")
+            print("🎯 Setting objective: MINIMIZE total cost")
+        
+        # Set the objective to minimize total cost
+        m.setObjective(total_cost, GRB.MINIMIZE)
+        
+        if verbose:
+            print("🔧 Gurobi will now optimize to find the cheapest combination")
             print("\n--- Solving Gurobi Model ---")
         m.optimize()
 
@@ -659,7 +984,41 @@ def pipeline_ski(query, mode, model_name, index, model_version=None, verbose=Fal
             selected_resort_index = int(m.getVarByName("resort_index").X)
             resort_name = selected_resorts[selected_resort_index]
             
-            plan = (f"Optimal solution found with Gurobi!\n"
+            if verbose:
+                print("--- Gurobi Optimization Result ---")
+                print("🎯 Optimal solution found with Gurobi optimization!")
+                print(f"  - Objective value (minimized cost): €{m.objVal:.2f}")
+                print(f"  - Selected Resort: {resort_name}")
+                print(f"  - Total Cost: €{total_cost.X:.2f}")
+                print(f"  - Accommodation Cost: €{accommodation_cost.X:.2f}")
+                print(f"  - Equipment Cost: €{equipment_cost.X:.2f}")
+                print(f"  - Car Rental Cost: €{car_cost.X:.2f}")
+                
+                # Show optimization choices
+                try:
+                    if m.getVarByName("rent_skis"):
+                        print("  Equipment optimally chosen:")
+                        if m.getVarByName("rent_skis").X > 0.5:
+                            print("    ✓ Skis")
+                        if m.getVarByName("rent_boots").X > 0.5:
+                            print("    ✓ Boots")
+                        if m.getVarByName("rent_helmet").X > 0.5:
+                            print("    ✓ Helmet")
+                        if m.getVarByName("rent_poles").X > 0.5:
+                            print("    ✓ Poles")
+                except Exception:
+                    pass
+                
+                try:
+                    if m.getVarByName("car_rental") and m.getVarByName("car_rental").X > 0.5:
+                        print("  ✓ Car rental selected (cost-effective)")
+                    else:
+                        print("  ✗ Car rental not selected (not cost-effective)")
+                except Exception:
+                    pass
+            
+            plan = (f"🎯 Optimal solution found with Gurobi optimization!\n"
+                    f"  - Objective value (minimized cost): €{m.objVal:.2f}\n"
                     f"  - Selected Resort: {resort_name}\n"
                     f"  - Total Cost: €{total_cost.X:.2f}\n"
                     f"  - Accommodation Cost: €{accommodation_cost.X:.2f}\n"
@@ -813,11 +1172,7 @@ Accommodation: {accommodation if accommodation else f"{query.get('destination', 
 
 # Ensure the main logic is executed
 if __name__ == "__main__":
-    if OPENAI_API_KEY:
-        os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
-        print("SKI PLANNER - Using Real LLM (OpenAI API)")
-    else:
-        print("SKI PLANNER - Using Mock LLM (No API costs)")
+    print("SKI PLANNER - Using Real GitHub Models API (Gurobi version)")
 
     # Add debug prints to trace execution flow
     print("Starting main logic...")
@@ -825,12 +1180,12 @@ if __name__ == "__main__":
     # Example query for testing
     query = "Plan a 5-day ski trip to Zermatt for 4 people with a budget of 5000 euros."
     mode = "test"
-    model = "gpt-4"
+    model = "gpt-4o-mini"
     index = 1
 
     # Call the pipeline function
     try:
-        plan = pipeline_ski(query, mode, model, index, model_version="gpt-4", verbose=True)
+        plan = pipeline_ski(query, mode, model, index, model_version="gpt-4o-mini", verbose=True)
         if plan:
             print("\nGenerated Ski Plan:\n")
             print(plan)
@@ -955,9 +1310,9 @@ def generate_ski_plan_with_gurobi(selected_resorts, resort_info_beds, resort_inf
         return "No feasible solution found."
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Ski Planner Test with Mock LLM")
+    parser = argparse.ArgumentParser(description="Ski Planner Test with GitHub Models API and Gurobi")
     parser.add_argument("--set_type", type=str, default="test_ski")
-    parser.add_argument("--model_name", type=str, default="mock_llm")
+    parser.add_argument("--model_name", type=str, default="gpt-4o-mini")
     parser.add_argument("--use_dataset_queries", action="store_true", help="Use queries from dataset_ski")
     parser.add_argument("--max_queries", type=int, default=5, help="Maximum number of queries to test")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
@@ -966,7 +1321,7 @@ if __name__ == '__main__':
     parser.add_argument("--query_file", type=str, help="File containing a single query to test")
     args = parser.parse_args()
 
-    print("SKI PLANNER - Using Mock LLM (No API costs)")
+    print(f"SKI PLANNER - Using GitHub Models API with Gurobi Optimization (Model: {args.model_name})")
     
     # Clean output preparation
     clean_results = [] if args.clean_output else None
@@ -1025,7 +1380,7 @@ if __name__ == '__main__':
             print("-" * 60)
             
             try:
-                result_plan = pipeline_ski(query, args.set_type, args.model_name, number, "mock", args.verbose)
+                result_plan = pipeline_ski(query, args.set_type, args.model_name, number, args.model_name, args.verbose)
                 
                 # Load the generated JSON to get parameters and calculate costs
                 json_path = f'output_ski/{args.set_type}/{args.model_name}/{number}/plans/query.json'
