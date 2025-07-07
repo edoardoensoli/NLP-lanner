@@ -141,6 +141,14 @@ def pipeline_ski(query, mode, model, index, model_version=None, verbose=False):
             print(f"❌ Failed to initialize Ski APIs: {e}")
         return None
     
+    # Track fallback usage for logging
+    fallback_used = {
+        'resorts': False,
+        'slopes': False,
+        'equipment': False,
+        'cars': False
+    }
+    
     try:
         # Step 1: Convert query to JSON
         if verbose:
@@ -174,38 +182,65 @@ def pipeline_ski(query, mode, model, index, model_version=None, verbose=False):
         
         solver = Solver()
         
-        # Step 3: Get available options from APIs
+        # Step 3: Get available options from APIs with proper fallback handling
         if verbose:
             print("Step 3: Querying ski APIs for available options...")
         
-        # Get resort options
+        # Get resort options with real data prioritization
         resort_data = ski_resorts.run(destination)
         if isinstance(resort_data, pd.DataFrame) and not resort_data.empty:
             resorts = resort_data.to_dict('records')
+            if verbose:
+                print(f"✅ Found {len(resorts)} real resort options from API")
         else:
-            # Fallback data
+            # Fallback data only when API fails
             resorts = [{'Resort': destination, 'Price_day': 150, 'Beds': 2, 'Rating': 4}]
+            fallback_used['resorts'] = True
+            if verbose:
+                print(f"⚠️  Using fallback resort data (API returned no results)")
         
-        # Get slope options
+        # Get slope options with real data prioritization
         slope_data = ski_slopes.run(destination)
         if isinstance(slope_data, pd.DataFrame) and not slope_data.empty:
             slopes = slope_data.to_dict('records')
+            if verbose:
+                print(f"✅ Found {len(slopes)} real slope options from API")
         else:
             slopes = [{'Difficulty': 'Blue', 'Length': 2.5, 'Price': 50}]
+            fallback_used['slopes'] = True
+            if verbose:
+                print(f"⚠️  Using fallback slope data (API returned no results)")
         
-        # Get equipment options
+        # Get equipment options with real data prioritization
         equipment_data = ski_rent.run(destination)
         if isinstance(equipment_data, pd.DataFrame) and not equipment_data.empty:
             equipment = equipment_data.to_dict('records')
+            if verbose:
+                print(f"✅ Found {len(equipment)} real equipment options from API")
         else:
             equipment = [{'Equipment': 'Skis', 'Price_day': 25}, {'Equipment': 'Boots', 'Price_day': 15}]
+            fallback_used['equipment'] = True
+            if verbose:
+                print(f"⚠️  Using fallback equipment data (API returned no results)")
         
-        # Get car options
+        # Get car options with real data prioritization
         car_data = ski_car.run(destination)
         if isinstance(car_data, pd.DataFrame) and not car_data.empty:
             cars = car_data.to_dict('records')
+            if verbose:
+                print(f"✅ Found {len(cars)} real car options from API")
         else:
             cars = [{'Car': 'SUV', 'Price_day': 80, 'Fuel': 'Petrol'}]
+            fallback_used['cars'] = True
+            if verbose:
+                print(f"⚠️  Using fallback car data (API returned no results)")
+        
+        # Check if equipment is requested in query
+        equipment_requested = any(keyword in query.lower() for keyword in ['equipment', 'gear', 'ski rental', 'rent'])
+        if not equipment_requested:
+            equipment = []  # Don't include equipment if not requested
+            if verbose:
+                print("ℹ️  Equipment not requested in query - excluding from planning")
         
         # Step 4: Create Z3 variables and constraints
         if verbose:
@@ -235,32 +270,36 @@ def pipeline_ski(query, mode, model, index, model_version=None, verbose=False):
         # At most one car (car rental is optional)
         solver.add(Sum([If(var, 1, 0) for var in car_vars]) <= 1)
         
-        # Cost calculation
+        # Cost calculation using real data with minimal fallbacks
         total_cost = Int('total_cost')
         
-        # Resort cost (accommodation)
-        resort_cost = Sum([
-            If(resort_vars[i], 
-               resorts[i].get('Price_day', 150) * days * people, 
-               0) 
-            for i in range(len(resorts))
-        ])
+        # Resort cost (accommodation) - prioritize real data
+        resort_costs = []
+        for i, resort in enumerate(resorts):
+            # Use real price if available, otherwise use fallback only if API failed completely
+            price = resort.get('Price_day')
+            if price is None:
+                price = 150 if fallback_used['resorts'] else 100  # Conservative fallback
+            resort_costs.append(If(resort_vars[i], price * days * people, 0))
+        resort_cost = Sum(resort_costs)
         
-        # Equipment cost
-        equipment_cost = Sum([
-            If(equipment_vars[i], 
-               equipment[i].get('Price_day', 25) * days * people, 
-               0) 
-            for i in range(len(equipment))
-        ])
+        # Equipment cost - prioritize real data
+        equipment_costs = []
+        for i, eq in enumerate(equipment):
+            price = eq.get('Price_day')
+            if price is None:
+                price = 25 if fallback_used['equipment'] else 20  # Conservative fallback
+            equipment_costs.append(If(equipment_vars[i], price * days * people, 0))
+        equipment_cost = Sum(equipment_costs)
         
-        # Car cost
-        car_cost = Sum([
-            If(car_vars[i], 
-               cars[i].get('Price_day', 80) * days, 
-               0) 
-            for i in range(len(cars))
-        ])
+        # Car cost - prioritize real data
+        car_costs = []
+        for i, car in enumerate(cars):
+            price = car.get('Price_day')
+            if price is None:
+                price = 80 if fallback_used['cars'] else 60  # Conservative fallback
+            car_costs.append(If(car_vars[i], price * days, 0))
+        car_cost = Sum(car_costs)
         
         # Total cost constraint
         solver.add(total_cost == resort_cost + equipment_cost + car_cost)
@@ -307,13 +346,39 @@ def pipeline_ski(query, mode, model, index, model_version=None, verbose=False):
                     selected_car = cars[i]
                     break
             
-            # Calculate actual costs
-            resort_cost_val = selected_resort.get('Price_day', 150) * days * people if selected_resort else 0
-            equipment_cost_val = sum(eq.get('Price_day', 25) * days * people for eq in selected_equipment)
-            car_cost_val = selected_car.get('Price_day', 80) * days if selected_car else 0
+            # Calculate actual costs using real data with same fallback logic
+            resort_cost_val = 0
+            if selected_resort:
+                price = selected_resort.get('Price_day')
+                if price is None:
+                    price = 150 if fallback_used['resorts'] else 100
+                resort_cost_val = price * days * people
+            
+            equipment_cost_val = 0
+            for eq in selected_equipment:
+                price = eq.get('Price_day')
+                if price is None:
+                    price = 25 if fallback_used['equipment'] else 20
+                equipment_cost_val += price * days * people
+            
+            car_cost_val = 0
+            if selected_car:
+                price = selected_car.get('Price_day')
+                if price is None:
+                    price = 80 if fallback_used['cars'] else 60
+                car_cost_val = price * days
+            
             total_cost_val = resort_cost_val + equipment_cost_val + car_cost_val
             
-            # Generate plan
+            # Generate plan with fallback usage logging
+            fallback_summary = []
+            if any(fallback_used.values()):
+                fallback_summary.append("\n⚠️  FALLBACK DATA USAGE:")
+                for category, used in fallback_used.items():
+                    if used:
+                        fallback_summary.append(f"  - {category.title()}: API returned no data, using fallback values")
+                fallback_summary.append("")
+            
             plan = f"""Z3 SKI TRIP PLAN:
 
 DESTINATION: {destination}
@@ -323,7 +388,7 @@ BUDGET: €{budget}
 
 SELECTED RESORT:
 - Resort: {selected_resort.get('Resort', destination) if selected_resort else destination}
-- Price per day: €{selected_resort.get('Price_day', 150) if selected_resort else 150}
+- Price per day: €{selected_resort.get('Price_day', 150 if fallback_used['resorts'] else 100) if selected_resort else (150 if fallback_used['resorts'] else 100)}
 - Beds available: {selected_resort.get('Beds', people) if selected_resort else people}
 - Rating: {selected_resort.get('Rating', 4) if selected_resort else 4}/5
 
@@ -332,13 +397,19 @@ EQUIPMENT RENTAL:
             
             if selected_equipment:
                 for eq in selected_equipment:
-                    plan += f"- {eq.get('Equipment', 'Equipment')}: €{eq.get('Price_day', 25)}/day\n"
+                    price = eq.get('Price_day')
+                    if price is None:
+                        price = 25 if fallback_used['equipment'] else 20
+                    plan += f"- {eq.get('Equipment', 'Equipment')}: €{price}/day\n"
             else:
                 plan += "- No equipment rental selected\n"
             
-            plan += f"\nCAR RENTAL:\n"
+            plan += "\nCAR RENTAL:\n"
             if selected_car:
-                plan += f"- {selected_car.get('Car', 'Car')}: €{selected_car.get('Price_day', 80)}/day\n"
+                price = selected_car.get('Price_day')
+                if price is None:
+                    price = 80 if fallback_used['cars'] else 60
+                plan += f"- {selected_car.get('Car', 'Car')}: €{price}/day\n"
                 plan += f"- Fuel type: {selected_car.get('Fuel', 'Petrol')}\n"
             else:
                 plan += "- No car rental selected\n"
@@ -351,10 +422,11 @@ COST BREAKDOWN:
 - TOTAL COST: €{total_cost_val:.2f}
 
 BUDGET STATUS: {'✅ Within budget' if total_cost_val <= budget else '❌ Over budget'}
-
-Generated by: Z3 Constraint Solver with Real LLM Integration
+{''.join(fallback_summary)}
+Generated by: Z3 Constraint Solver with Real Data Integration
 Solver: Z3 SMT Solver
 Model: {model_version or model}
+Data Sources: {'Real API data' if not any(fallback_used.values()) else 'Mixed API + Fallback data'}
 """
             
             return plan
