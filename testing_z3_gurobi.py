@@ -37,6 +37,29 @@ from test_skiplanner_gurobi import pipeline_ski as pipeline_ski_gurobi
 # Import LLM client for pure LLM comparison
 from test_skiplanner_gurobi import LLMClient
 
+# Import metrics system
+try:
+    from ski_planner_metrics import SkiPlannerMetrics
+    METRICS_AVAILABLE = True
+except ImportError:
+    print("Warning: ski_planner_metrics not available. Metrics will be disabled.")
+    METRICS_AVAILABLE = False
+    
+    # Mock SkiPlannerMetrics for fallback
+    class SkiPlannerMetrics:
+        def evaluate_all_metrics(self, **kwargs):
+            return {
+                'final_pass_rate': 0.0,
+                'delivery_rate': 0.0,
+                'hard_constraint_pass_rate_micro': 0.0,
+                'hard_constraint_pass_rate_macro': 0.0,
+                'commonsense_pass_rate': 0.0,
+                'interactive_plan_repair_success': 0.0,
+                'optimality': 0.0,
+                'runtime': kwargs.get('execution_time', 0.0),
+                'cost': kwargs.get('total_cost', 0.0)
+            }
+
 def pipeline_ski_pure_llm(query: str, mode: str, model_name: str, index: int, model_version: str = None, verbose: bool = False) -> str:
     """Pure LLM pipeline without any constraint solver"""
     try:
@@ -117,6 +140,8 @@ class SkiBenchmarkResult:
         self.days = 0
         self.people = 0
         self.budget = 0
+        self.model_used = ""
+        self.status = ""
         
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization"""
@@ -129,11 +154,13 @@ class SkiBenchmarkResult:
             "total_cost": self.total_cost,
             "cost_breakdown": self.cost_breakdown,
             "feasible": self.feasible,
+            "status": self.status,
             "llm_calls": self.llm_calls,
             "destination": self.destination,
             "days": self.days,
             "people": self.people,
-            "budget": self.budget
+            "budget": self.budget,
+            "model_used": self.model_used
         }
 
 class ThreeWayBenchmarkComparison:
@@ -145,142 +172,128 @@ class ThreeWayBenchmarkComparison:
         self.gurobi_result = gurobi_result
         self.timestamp = datetime.now().isoformat()
         
+        # Initialize metrics evaluator
+        self.metrics_evaluator = SkiPlannerMetrics()
+        
+        # Calculate metrics for each planner
+        self.pure_llm_metrics = self._calculate_metrics(pure_llm_result)
+        self.z3_metrics = self._calculate_metrics(z3_result)
+        self.gurobi_metrics = self._calculate_metrics(gurobi_result)
+    
+    def _calculate_metrics(self, result: SkiBenchmarkResult) -> Dict:
+        """Calculate metrics for a single planner result"""
+        return self.metrics_evaluator.evaluate_all_metrics(
+            query=self.query,
+            plan_text=result.plan_text,
+            execution_time=result.execution_time,
+            success=result.success,
+            feasible=result.feasible,
+            status=result.status,
+            error_message=result.error_message,
+            total_cost=result.total_cost,
+            llm_calls=result.llm_calls,
+            model_used=result.model_used
+        )
+        
     def analyze_comparison(self) -> Dict:
-        """Analyze and compare the three results"""
+        """Analyze and compare the three results based on solver reliability."""
         analysis = {
             "query": self.query,
             "timestamp": self.timestamp,
-            "success_summary": {
-                "pure_llm_success": self.pure_llm_result.success,
-                "z3_success": self.z3_result.success,
-                "gurobi_success": self.gurobi_result.success,
-                "all_successful": self.pure_llm_result.success and self.z3_result.success and self.gurobi_result.success,
-                "success_count": sum([self.pure_llm_result.success, self.z3_result.success, self.gurobi_result.success])
+            "winner": "None",
+            "recommendation": "",
+            "results_summary": {
+                "pure_llm": self.pure_llm_result.status,
+                "z3": self.z3_result.status,
+                "gurobi": self.gurobi_result.status,
             },
             "performance_comparison": {},
-            "cost_comparison": {},
-            "winner": None,
-            "recommendation": ""
+            "cost_comparison": {}
         }
-        
-        # Performance comparison (only for successful runs)
-        successful_results = []
-        if self.pure_llm_result.success:
-            successful_results.append(("Pure LLM", self.pure_llm_result.execution_time, self.pure_llm_result.total_cost))
-        if self.z3_result.success:
-            successful_results.append(("Z3", self.z3_result.execution_time, self.z3_result.total_cost))
-        if self.gurobi_result.success:
-            successful_results.append(("Gurobi", self.gurobi_result.execution_time, self.gurobi_result.total_cost))
-        
-        if successful_results:
-            # Sort by execution time
-            fastest = min(successful_results, key=lambda x: x[1])
-            slowest = max(successful_results, key=lambda x: x[1])
-            
-            # Sort by cost (only if cost > 0)
-            cost_results = [(name, time, cost) for name, time, cost in successful_results if cost > 0]
-            if cost_results:
-                cheapest = min(cost_results, key=lambda x: x[2])
-                most_expensive = max(cost_results, key=lambda x: x[2])
-            else:
-                cheapest = None
-                most_expensive = None
-            
-            analysis["performance_comparison"] = {
-                "pure_llm_time": self.pure_llm_result.execution_time if self.pure_llm_result.success else None,
-                "z3_time": self.z3_result.execution_time if self.z3_result.success else None,
-                "gurobi_time": self.gurobi_result.execution_time if self.gurobi_result.success else None,
-                "fastest": fastest[0],
-                "slowest": slowest[0],
-                "fastest_time": fastest[1],
-                "slowest_time": slowest[1]
-            }
-            
-            analysis["cost_comparison"] = {
-                "pure_llm_cost": self.pure_llm_result.total_cost if self.pure_llm_result.success else None,
-                "z3_cost": self.z3_result.total_cost if self.z3_result.success else None,
-                "gurobi_cost": self.gurobi_result.total_cost if self.gurobi_result.success else None,
-                "cheapest": cheapest[0] if cheapest else None,
-                "most_expensive": most_expensive[0] if most_expensive else None,
-                "cheapest_cost": cheapest[2] if cheapest else None,
-                "most_expensive_cost": most_expensive[2] if most_expensive else None
-            }
-            
-            # Determine winner based on multiple criteria
-            if analysis["success_summary"]["success_count"] == 3:
-                # All successful - compare performance and cost
-                speed_winner = fastest[0]
-                cost_winner = cheapest[0] if cheapest else None
+
+        z3_status = self.z3_result.status
+        gurobi_status = self.gurobi_result.status
+        llm_status = self.pure_llm_result.status
+
+        optimal_solvers = []
+        if z3_status == 'optimal':
+            optimal_solvers.append(self.z3_result)
+        if gurobi_status == 'optimal':
+            optimal_solvers.append(self.gurobi_result)
+
+        infeasible_solvers = []
+        if z3_status == 'infeasible':
+            infeasible_solvers.append(self.z3_result)
+        if gurobi_status == 'infeasible':
+            infeasible_solvers.append(self.gurobi_result)
+
+        # Case 1: At least one solver found an optimal solution
+        if optimal_solvers:
+            if len(optimal_solvers) == 2:
+                # Both Z3 and Gurobi found a solution, pick the cheapest
+                winner_result = min(optimal_solvers, key=lambda r: r.total_cost)
+                loser_result = max(optimal_solvers, key=lambda r: r.total_cost)
+                analysis["winner"] = winner_result.planner_name
+                cost_diff = abs(loser_result.total_cost - winner_result.total_cost)
                 
-                if cost_winner and cheapest and most_expensive:
-                    lowest_cost = cheapest[2]
-                    cost_diff = most_expensive[2] - cheapest[2]
-                    time_diff = slowest[1] - fastest[1]
-                    
-                    # Check if there are multiple methods with the same lowest cost
-                    cost_tied_methods = [name for name, time, cost in successful_results if abs(cost - lowest_cost) < 0.01]
-                    
-                    if len(cost_tied_methods) > 1:  # Multiple methods have same optimal cost
-                        # Among tied methods, pick the fastest
-                        tied_with_times = [(name, time) for name, time, cost in successful_results if abs(cost - lowest_cost) < 0.01]
-                        fastest_tied = min(tied_with_times, key=lambda x: x[1])
-                        analysis["winner"] = fastest_tied[0]
-                        
-                        if len(cost_tied_methods) == 2:
-                            other_tied = [name for name in cost_tied_methods if name != fastest_tied[0]][0]
-                            other_time = next(time for name, time, cost in successful_results if name == other_tied)
-                            time_advantage = other_time - fastest_tied[1]
-                            analysis["recommendation"] = f"{fastest_tied[0]} recommended - same optimal cost (€{lowest_cost:.2f}) but {time_advantage:.2f}s faster than {other_tied}"
-                        else:
-                            analysis["recommendation"] = f"{fastest_tied[0]} recommended - optimal cost (€{lowest_cost:.2f}) with fastest execution ({fastest_tied[1]:.2f}s)"
-                    elif cost_diff > 500:  # Significant cost difference
-                        analysis["winner"] = cost_winner
-                        analysis["recommendation"] = f"{cost_winner} recommended for significant cost savings (€{cost_diff:.2f})"
-                    elif speed_winner == cost_winner:
-                        analysis["winner"] = speed_winner
-                        analysis["recommendation"] = f"{speed_winner} is both fastest and cheapest"
-                    elif time_diff > 10:  # Significant time difference
-                        analysis["winner"] = speed_winner
-                        analysis["recommendation"] = f"{speed_winner} recommended for significantly faster execution ({time_diff:.2f}s faster)"
-                    else:
-                        analysis["winner"] = cost_winner
-                        analysis["recommendation"] = f"{cost_winner} recommended for lowest cost (€{cheapest[2]:.2f})"
+                analysis["recommendation"] = f"{winner_result.planner_name} is recommended, finding an optimal solution with the lowest cost (€{winner_result.total_cost:.2f})."
+                if cost_diff > 1:
+                    analysis["recommendation"] += f" It is €{cost_diff:.2f} cheaper than {loser_result.planner_name}."
                 else:
-                    analysis["winner"] = speed_winner
-                    analysis["recommendation"] = f"{speed_winner} recommended for best performance"
-            
-            elif analysis["success_summary"]["success_count"] == 2:
-                # Two successful - pick the better one
-                if not self.pure_llm_result.success:
-                    better = "Z3" if self.z3_result.total_cost < self.gurobi_result.total_cost else "Gurobi"
-                    analysis["winner"] = better
-                    analysis["recommendation"] = f"{better} recommended (Pure LLM failed)"
-                elif not self.z3_result.success:
-                    better = "Pure LLM" if self.pure_llm_result.total_cost < self.gurobi_result.total_cost else "Gurobi"
-                    analysis["winner"] = better
-                    analysis["recommendation"] = f"{better} recommended (Z3 failed)"
-                else:  # Gurobi failed
-                    better = "Pure LLM" if self.pure_llm_result.total_cost < self.z3_result.total_cost else "Z3"
-                    analysis["winner"] = better
-                    analysis["recommendation"] = f"{better} recommended (Gurobi failed)"
-            
-            elif analysis["success_summary"]["success_count"] == 1:
-                # Only one successful
-                if self.pure_llm_result.success:
-                    analysis["winner"] = "Pure LLM"
-                    analysis["recommendation"] = "Pure LLM is the only working solution"
-                elif self.z3_result.success:
-                    analysis["winner"] = "Z3"
-                    analysis["recommendation"] = "Z3 is the only working solution"
-                else:
-                    analysis["winner"] = "Gurobi"
-                    analysis["recommendation"] = "Gurobi is the only working solution"
-            
+                    # If costs are the same, recommend the faster one
+                    faster_res = min(optimal_solvers, key=lambda r: r.execution_time)
+                    if faster_res.planner_name != winner_result.planner_name:
+                         analysis["recommendation"] += f" However, {faster_res.planner_name} was faster."
+                         analysis["winner"] = faster_res.planner_name # The winner is the fastest if costs are the same
+
             else:
-                # All failed
-                analysis["winner"] = "None"
-                analysis["recommendation"] = "All methods failed - check query constraints"
-        
+                # Only one solver found a solution
+                winner_result = optimal_solvers[0]
+                other_solver_status = gurobi_status if winner_result.planner_name == "Z3" else z3_status
+                analysis["winner"] = winner_result.planner_name
+                analysis["recommendation"] = f"{winner_result.planner_name} is recommended as it was the only solver to find an optimal solution (the other solver returned '{other_solver_status}')."
+
+            # Add performance and cost details for all planners
+            analysis["performance_comparison"] = {
+                "pure_llm_time": self.pure_llm_result.execution_time,
+                "z3_time": self.z3_result.execution_time,
+                "gurobi_time": self.gurobi_result.execution_time,
+            }
+            analysis["cost_comparison"] = {
+                "pure_llm_cost": self.pure_llm_result.total_cost if llm_status == 'optimal' else None,
+                "z3_cost": self.z3_result.total_cost if z3_status == 'optimal' else None,
+                "gurobi_cost": self.gurobi_result.total_cost if gurobi_status == 'optimal' else None,
+            }
+            return analysis
+
+        # Case 2: No optimal solutions from solvers, but at least one found it infeasible
+        if infeasible_solvers:
+            analysis["winner"] = "None"
+            if len(infeasible_solvers) == 2:
+                analysis["recommendation"] = "Query is infeasible. Both Z3 and Gurobi planners confirmed this."
+            else:
+                # One is infeasible, the other errored
+                winner_result = infeasible_solvers[0]
+                other_planner = "Gurobi" if winner_result.planner_name == "Z3" else "Z3"
+                analysis["recommendation"] = f"Query is likely infeasible. {winner_result.planner_name} confirmed infeasibility, while {other_planner} encountered an error."
+
+            # Add the suggestion from the first infeasible solver
+            suggestion = infeasible_solvers[0].error_message.replace('`', '') # The suggestion is stored here
+            if suggestion:
+                analysis["recommendation"] += f"\nSuggestion: {suggestion}"
+
+            if llm_status == 'optimal':
+                analysis["recommendation"] += "\nNote: The Pure LLM planner generated a plan, but it likely violates one or more constraints."
+            return analysis
+
+        # Case 3: Both solvers failed/errored
+        analysis["winner"] = "None"
+        if llm_status == 'optimal':
+            analysis["winner"] = "Pure LLM"
+            analysis["recommendation"] = "Both Z3 and Gurobi planners failed. The Pure LLM provided a plan, but its feasibility is not guaranteed and it should be reviewed carefully."
+        else:
+            analysis["recommendation"] = "All planners failed to produce a valid result for this query."
+
         return analysis
     
     def to_dict(self) -> Dict:
@@ -291,10 +304,15 @@ class ThreeWayBenchmarkComparison:
             "pure_llm_result": self.pure_llm_result.to_dict(),
             "z3_result": self.z3_result.to_dict(),
             "gurobi_result": self.gurobi_result.to_dict(),
-            "analysis": self.analyze_comparison()
+            "analysis": self.analyze_comparison(),
+            "metrics": {
+                "pure_llm_metrics": self.pure_llm_metrics,
+                "z3_metrics": self.z3_metrics,
+                "gurobi_metrics": self.gurobi_metrics
+            }
         }
 
-def run_single_planner(planner_func, planner_name: str, query: str, model_name: str, verbose: bool = False) -> SkiBenchmarkResult:
+def run_single_planner(planner_func, planner_name: str, query: str, model_name: str, verbose: bool = False, fallback_models: List[str] = None) -> SkiBenchmarkResult:
     """Run a single planner and capture results"""
     result = SkiBenchmarkResult(planner_name)
     
@@ -310,7 +328,8 @@ def run_single_planner(planner_func, planner_name: str, query: str, model_name: 
                 model=model_name,
                 index=1,
                 model_version=model_name,
-                verbose=verbose
+                verbose=verbose,
+                fallback_models=fallback_models
             )
         elif planner_name == "Pure LLM":
             # Pure LLM planner uses 'model_name' parameter
@@ -323,38 +342,53 @@ def run_single_planner(planner_func, planner_name: str, query: str, model_name: 
                 verbose=verbose
             )
         else:
-            # Gurobi planner uses 'model_name' parameter
+            # Gurobi planner uses 'model' parameter, same as Z3
             plan_text = planner_func(
                 query=query,
                 mode="benchmark",
-                model_name=model_name,
+                model=model_name, # Corrected from model_name
                 index=1,
                 model_version=model_name,
-                verbose=verbose
+                verbose=verbose,
+                fallback_models=fallback_models
             )
         
         end_time = time.time()
         result.execution_time = end_time - start_time
         
         if plan_text:
-            result.success = True
-            result.plan_text = plan_text
-            result.feasible = True
-            
-            # Extract cost information from plan text
-            result.total_cost = extract_cost_from_plan(plan_text)
-            result.cost_breakdown = extract_cost_breakdown_from_plan(plan_text)
-            
-            # Extract other parameters
-            result.destination = extract_destination_from_plan(plan_text)
-            result.days = extract_days_from_plan(plan_text)
-            result.people = extract_people_from_plan(plan_text)
-            result.budget = extract_budget_from_plan(plan_text)
-            
+            # Check for infeasibility or failure messages
+            if "infeasible" in plan_text.lower():
+                result.success = True  # Planner worked correctly
+                result.feasible = False
+                result.status = "infeasible"
+                result.error_message = plan_text  # The suggestion is the message
+            elif any(keyword in plan_text.lower() for keyword in ["failed", "error"]):
+                result.success = False
+                result.feasible = False
+                result.status = "error"
+                result.error_message = plan_text
+            else:
+                result.success = True
+                result.plan_text = plan_text
+                result.feasible = True
+                result.status = "optimal"
+                
+                # Extract cost information from plan text
+                result.total_cost = extract_cost_from_plan(plan_text)
+                result.cost_breakdown = extract_cost_breakdown_from_plan(plan_text)
+                
+                # Extract other parameters
+                result.destination = extract_destination_from_plan(plan_text)
+                result.days = extract_days_from_plan(plan_text)
+                result.people = extract_people_from_plan(plan_text)
+                result.budget = extract_budget_from_plan(plan_text)
+                
         else:
             result.success = False
             result.error_message = "No plan generated"
             result.feasible = False
+            result.status = "error"
             
     except Exception as e:
         result.success = False
@@ -524,40 +558,56 @@ def extract_budget_from_plan(plan_text: str) -> float:
     
     return 0.0
 
-def run_benchmark_comparison(query: str, model_name: str = "gpt-4o-mini", verbose: bool = False) -> ThreeWayBenchmarkComparison:
+def run_benchmark_comparison(query: str, available_models: List[str], verbose: bool = False) -> ThreeWayBenchmarkComparison:
     """Run all three planners on the same query and compare results"""
     
     print(f"\n{'='*80}")
     print(f"THREE-WAY BENCHMARKING: {query}")
-    print(f"Model: {model_name}")
+    print(f"Available models: {available_models}")
     print(f"{'='*80}")
     
     # Run Pure LLM planner
     print("\n🤖 Running Pure LLM Planner...")
-    pure_llm_result = run_single_planner(pipeline_ski_pure_llm, "Pure LLM", query, model_name, verbose)
+    pure_llm_result = run_single_planner_with_fallback(pipeline_ski_pure_llm, "Pure LLM", query, available_models, verbose)
     
     if pure_llm_result.success:
-        print(f"✅ Pure LLM completed in {pure_llm_result.execution_time:.2f}s - Cost: €{pure_llm_result.total_cost:.2f}")
+        print(f"✅ Pure LLM completed in {pure_llm_result.execution_time:.2f}s with {pure_llm_result.model_used} - Cost: €{pure_llm_result.total_cost:.2f}")
+        if verbose:
+            print(f"\n📋 Pure LLM Plan:\n{pure_llm_result.plan_text[:500]}..." if len(pure_llm_result.plan_text) > 500 else f"\n📋 Pure LLM Plan:\n{pure_llm_result.plan_text}")
     else:
-        print(f"❌ Pure LLM failed in {pure_llm_result.execution_time:.2f}s - Error: {pure_llm_result.error_message}")
+        print(f"❌ Pure LLM failed in {pure_llm_result.execution_time:.2f}s with {pure_llm_result.model_used} - Error: {pure_llm_result.error_message}")
     
     # Run Z3 planner
     print("\n🔍 Running Z3 Planner...")
-    z3_result = run_single_planner(pipeline_ski_z3, "Z3", query, model_name, verbose)
+    z3_result = run_single_planner_with_fallback(pipeline_ski_z3, "Z3", query, available_models, verbose)
     
     if z3_result.success:
-        print(f"✅ Z3 completed in {z3_result.execution_time:.2f}s - Cost: €{z3_result.total_cost:.2f}")
+        print(f"✅ Z3 completed in {z3_result.execution_time:.2f}s with {z3_result.model_used} - Cost: €{z3_result.total_cost:.2f}")
+        # Extract and show resort name from plan
+        if z3_result.plan_text and "SELECTED RESORT:" in z3_result.plan_text:
+            resort_line = [line for line in z3_result.plan_text.split('\n') if 'SELECTED RESORT:' in line]
+            if resort_line:
+                print(f"    Resort: {resort_line[0].replace('SELECTED RESORT:', '').strip()}")
+        if verbose:
+            print(f"\n📋 Z3 Plan:\n{z3_result.plan_text}")
     else:
-        print(f"❌ Z3 failed in {z3_result.execution_time:.2f}s - Error: {z3_result.error_message}")
+        print(f"❌ Z3 failed in {z3_result.execution_time:.2f}s with {z3_result.model_used} - Error: {z3_result.error_message}")
     
     # Run Gurobi planner
     print("\n🔍 Running Gurobi Planner...")
-    gurobi_result = run_single_planner(pipeline_ski_gurobi, "Gurobi", query, model_name, verbose)
+    gurobi_result = run_single_planner_with_fallback(pipeline_ski_gurobi, "Gurobi", query, available_models, verbose)
     
     if gurobi_result.success:
-        print(f"✅ Gurobi completed in {gurobi_result.execution_time:.2f}s - Cost: €{gurobi_result.total_cost:.2f}")
+        print(f"✅ Gurobi completed in {gurobi_result.execution_time:.2f}s with {gurobi_result.model_used} - Cost: €{gurobi_result.total_cost:.2f}")
+        # Extract and show resort name from plan
+        if gurobi_result.plan_text and "**Selected Resort:**" in gurobi_result.plan_text:
+            resort_line = [line for line in gurobi_result.plan_text.split('\n') if '**Selected Resort:**' in line]
+            if resort_line:
+                print(f"    Resort: {resort_line[0].replace('**Selected Resort:**', '').strip()}")
+        if verbose:
+            print(f"\n📋 Gurobi Plan:\n{gurobi_result.plan_text}")
     else:
-        print(f"❌ Gurobi failed in {gurobi_result.execution_time:.2f}s - Error: {gurobi_result.error_message}")
+        print(f"❌ Gurobi failed in {gurobi_result.execution_time:.2f}s with {gurobi_result.model_used} - Error: {gurobi_result.error_message}")
     
     # Create three-way comparison
     comparison = ThreeWayBenchmarkComparison(query, pure_llm_result, z3_result, gurobi_result)
@@ -565,66 +615,127 @@ def run_benchmark_comparison(query: str, model_name: str = "gpt-4o-mini", verbos
     return comparison
 
 def print_comparison_summary(comparison: ThreeWayBenchmarkComparison):
-    """Print a formatted summary of the three-way comparison"""
+    """Print a formatted summary of the three-way comparison."""
     analysis = comparison.analyze_comparison()
-    
+
     print(f"\n{'='*80}")
     print("THREE-WAY BENCHMARK RESULTS SUMMARY")
     print(f"{'='*80}")
-    
+
     print(f"Query: {comparison.query}")
     print(f"Timestamp: {comparison.timestamp}")
-    
+
     print("\n📊 EXECUTION RESULTS:")
-    print(f"  Pure LLM: {'✅ Success' if comparison.pure_llm_result.success else '❌ Failed'}")
-    print(f"  Z3:       {'✅ Success' if comparison.z3_result.success else '❌ Failed'}")  
-    print(f"  Gurobi:   {'✅ Success' if comparison.gurobi_result.success else '❌ Failed'}")
+    results_summary = analysis["results_summary"]
     
-    success_count = analysis["success_summary"]["success_count"]
-    print(f"  Success Rate: {success_count}/3 ({success_count/3*100:.1f}%)")
-    
-    if success_count >= 2:
-        print("\n⏱️  PERFORMANCE COMPARISON:")
-        perf = analysis["performance_comparison"]
-        if perf.get("pure_llm_time") is not None:
-            print(f"  Pure LLM Time: {perf['pure_llm_time']:.2f}s")
-        if perf.get("z3_time") is not None:
-            print(f"  Z3 Time:       {perf['z3_time']:.2f}s")
-        if perf.get("gurobi_time") is not None:
-            print(f"  Gurobi Time:   {perf['gurobi_time']:.2f}s")
-        print(f"  Fastest:       {perf.get('fastest', 'N/A')} ({perf.get('fastest_time', 0):.2f}s)")
+    # Custom printing for each result status
+    for planner_name, status in results_summary.items():
+        if status == "optimal":
+            status_icon = "✅"
+            status_text = "Success (Optimal)"
+        elif status == "infeasible":
+            status_icon = "ℹ️"
+            status_text = "Infeasible"
+        else:
+            status_icon = "❌"
+            status_text = f"Failed ({status})"
         
-        print("\n💰 COST COMPARISON:")
-        cost = analysis["cost_comparison"]
-        if cost.get("pure_llm_cost") is not None and cost["pure_llm_cost"] > 0:
-            print(f"  Pure LLM Cost: €{cost['pure_llm_cost']:.2f}")
-            if comparison.pure_llm_result.cost_breakdown:
-                for category, amount in comparison.pure_llm_result.cost_breakdown.items():
-                    print(f"    - {category.title()}: €{amount:.2f}")
-        if cost.get("z3_cost") is not None and cost["z3_cost"] > 0:
-            print(f"  Z3 Cost:       €{cost['z3_cost']:.2f}")
-            if comparison.z3_result.cost_breakdown:
-                for category, amount in comparison.z3_result.cost_breakdown.items():
-                    print(f"    - {category.title()}: €{amount:.2f}")
-        if cost.get("gurobi_cost") is not None and cost["gurobi_cost"] > 0:
-            print(f"  Gurobi Cost:   €{cost['gurobi_cost']:.2f}")
-            if comparison.gurobi_result.cost_breakdown:
-                for category, amount in comparison.gurobi_result.cost_breakdown.items():
-                    print(f"    - {category.title()}: €{amount:.2f}")
-        if cost.get("cheapest"):
-            print(f"  Cheapest:      {cost['cheapest']} (€{cost.get('cheapest_cost', 0):.2f})")
+        # Find the corresponding result object to get the model used
+        planner_key = f"{planner_name.lower()}_result"
+        if planner_name == "pure_llm":
+            planner_key = "pure_llm_result"
+        model_used = getattr(comparison, planner_key).model_used or "N/A"
+
+        print(f"  {planner_name.replace('_', ' ').title():<9} {status_icon} {status_text} (Model: {model_used})")
+
+    # Cost comparison for optimal solutions
+    cost_comparison = analysis.get("cost_comparison", {})
+    if any(cost is not None for cost in cost_comparison.values()):
+        print("\n💰 COST COMPARISON (for optimal solutions):")
+        if cost_comparison.get("z3_cost") is not None:
+            print(f"  Z3 Cost:       €{cost_comparison['z3_cost']:.2f}")
+        if cost_comparison.get("gurobi_cost") is not None:
+            print(f"  Gurobi Cost:   €{cost_comparison['gurobi_cost']:.2f}")
+        if cost_comparison.get("pure_llm_cost") is not None:
+            print(f"  Pure LLM Cost: €{cost_comparison['pure_llm_cost']:.2f} (Note: Feasibility not guaranteed)")
+
+    print("\n🏆 RECOMMENDATION:")
+    winner = analysis.get("winner", "None")
+    recommendation = analysis.get("recommendation", "No recommendation available.")
+    print(f"  Winner: {winner}")
+    print(f"  Reasoning: {recommendation}")
+
+    print(f"\n{'='*80}")
     
-    print(f"\n🏆 WINNER: {analysis['winner']}")
-    print(f"💡 RECOMMENDATION: {analysis['recommendation']}")
+    # Print detailed metrics summary
+    print_metrics_summary(comparison)
+
+def print_metrics_summary(comparison: ThreeWayBenchmarkComparison):
+    """Print comprehensive metrics summary for all planners"""
+    print(f"\n📊 COMPREHENSIVE METRICS EVALUATION")
+    print(f"{'='*80}")
     
-    if success_count < 3:
-        print("\n❌ ERRORS:")
-        if not comparison.pure_llm_result.success:
-            print(f"  Pure LLM Error: {comparison.pure_llm_result.error_message}")
-        if not comparison.z3_result.success:
-            print(f"  Z3 Error: {comparison.z3_result.error_message}")
-        if not comparison.gurobi_result.success:
-            print(f"  Gurobi Error: {comparison.gurobi_result.error_message}")
+    # Print metrics for each planner
+    planners = [
+        ("Pure LLM", comparison.pure_llm_metrics),
+        ("Z3", comparison.z3_metrics),
+        ("Gurobi", comparison.gurobi_metrics)
+    ]
+    
+    for planner_name, metrics in planners:
+        print(f"\n🔍 {planner_name.upper()} METRICS:")
+        print(f"  Final Pass Rate: {metrics['final_pass_rate']:.1%}")
+        print(f"  Delivery Rate: {metrics['delivery_rate']:.1%}")
+        print(f"  Hard Constraint Pass Rate (Micro): {metrics['hard_constraint_pass_rate_micro']:.1%}")
+        print(f"  Hard Constraint Pass Rate (Macro): {metrics['hard_constraint_pass_rate_macro']:.1%}")
+        print(f"  Commonsense Pass Rate: {metrics['commonsense_pass_rate']:.1%}")
+        print(f"  Interactive Plan Repair Success: {metrics['interactive_plan_repair_success']:.1%}")
+        print(f"  Optimality Score: {metrics['optimality']:.3f}")
+        print(f"  Runtime: {metrics['runtime']:.2f}s")
+        print(f"  Cost: €{metrics['cost']:.2f}")
+        
+        # Show constraint details if available
+        if 'constraint_details' in metrics:
+            details = metrics['constraint_details']
+            print(f"  Constraint Details:")
+            print(f"    Budget: {details['budget_constraint']}")
+            print(f"    Dates: {details['dates_constraint']}")
+            print(f"    People: {details['people_constraint']}")
+            print(f"    Resort: {details['resort_constraint']}")
+            print(f"    Days: {details['days_constraint']}")
+    
+    # Compare key metrics
+    print(f"\n⚖️  METRICS COMPARISON:")
+    print(f"  Final Pass Rate: Pure LLM={comparison.pure_llm_metrics['final_pass_rate']:.1%}, Z3={comparison.z3_metrics['final_pass_rate']:.1%}, Gurobi={comparison.gurobi_metrics['final_pass_rate']:.1%}")
+    print(f"  Delivery Rate: Pure LLM={comparison.pure_llm_metrics['delivery_rate']:.1%}, Z3={comparison.z3_metrics['delivery_rate']:.1%}, Gurobi={comparison.gurobi_metrics['delivery_rate']:.1%}")
+    print(f"  Hard Constraint (Micro): Pure LLM={comparison.pure_llm_metrics['hard_constraint_pass_rate_micro']:.1%}, Z3={comparison.z3_metrics['hard_constraint_pass_rate_micro']:.1%}, Gurobi={comparison.gurobi_metrics['hard_constraint_pass_rate_micro']:.1%}")
+    print(f"  Optimality: Pure LLM={comparison.pure_llm_metrics['optimality']:.3f}, Z3={comparison.z3_metrics['optimality']:.3f}, Gurobi={comparison.gurobi_metrics['optimality']:.3f}")
+    print(f"  Runtime (fastest): Pure LLM={comparison.pure_llm_metrics['runtime']:.2f}s, Z3={comparison.z3_metrics['runtime']:.2f}s, Gurobi={comparison.gurobi_metrics['runtime']:.2f}s")
+    
+    # Identify best performer for each metric
+    print(f"\n🏆 BEST PERFORMERS:")
+    
+    # Final Pass Rate
+    best_final_pass = max(planners, key=lambda x: x[1]['final_pass_rate'])
+    print(f"  Final Pass Rate: {best_final_pass[0]} ({best_final_pass[1]['final_pass_rate']:.1%})")
+    
+    # Delivery Rate
+    best_delivery = max(planners, key=lambda x: x[1]['delivery_rate'])
+    print(f"  Delivery Rate: {best_delivery[0]} ({best_delivery[1]['delivery_rate']:.1%})")
+    
+    # Hard Constraint Pass Rate
+    best_hard_constraint = max(planners, key=lambda x: x[1]['hard_constraint_pass_rate_micro'])
+    print(f"  Hard Constraint Pass Rate: {best_hard_constraint[0]} ({best_hard_constraint[1]['hard_constraint_pass_rate_micro']:.1%})")
+    
+    # Optimality
+    best_optimality = max(planners, key=lambda x: x[1]['optimality'])
+    print(f"  Optimality: {best_optimality[0]} ({best_optimality[1]['optimality']:.3f})")
+    
+    # Runtime (fastest)
+    best_runtime = min(planners, key=lambda x: x[1]['runtime'])
+    print(f"  Runtime (Fastest): {best_runtime[0]} ({best_runtime[1]['runtime']:.2f}s)")
+    
+    print(f"{'='*80}")
 
 def save_benchmark_results(comparison: ThreeWayBenchmarkComparison, output_dir: str = "benchmark_results"):
     """Save benchmark results to JSON file"""
@@ -641,15 +752,16 @@ def save_benchmark_results(comparison: ThreeWayBenchmarkComparison, output_dir: 
     print(f"\n💾 Results saved to: {filepath}")
     return filepath
 
-def run_batch_benchmark(queries: List[str], model_name: str = "gpt-4o-mini", verbose: bool = False) -> List[ThreeWayBenchmarkComparison]:
+def run_batch_benchmark(queries: List[str], available_models: List[str], verbose: bool = False) -> List[ThreeWayBenchmarkComparison]:
     """Run benchmark on multiple queries"""
     results = []
     
     print(f"\n🚀 Starting batch benchmark with {len(queries)} queries...")
+    print(f"Available models: {available_models}")
     
     for i, query in enumerate(queries, 1):
         print(f"\n📋 Processing query {i}/{len(queries)}")
-        comparison = run_benchmark_comparison(query, model_name, verbose)
+        comparison = run_benchmark_comparison(query, available_models, verbose)
         results.append(comparison)
         
         # Save individual result
@@ -657,7 +769,13 @@ def run_batch_benchmark(queries: List[str], model_name: str = "gpt-4o-mini", ver
         
         # Print summary
         print_comparison_summary(comparison)
-    
+
+        # Add a delay to avoid hitting API rate limits, especially with a powerful model
+        if i < len(queries):
+            delay = 10 # seconds
+            print(f"\n...waiting {delay} seconds before next query to avoid rate limits...")
+            time.sleep(delay)
+
     return results
 
 def generate_batch_report(results: List[ThreeWayBenchmarkComparison], output_dir: str = "benchmark_results"):
@@ -680,12 +798,30 @@ def generate_batch_report(results: List[ThreeWayBenchmarkComparison], output_dir
     z3_avg_cost = sum(r.z3_result.total_cost for r in results if r.z3_result.success and r.z3_result.total_cost > 0) / max(sum(1 for r in results if r.z3_result.success and r.z3_result.total_cost > 0), 1)
     gurobi_avg_cost = sum(r.gurobi_result.total_cost for r in results if r.gurobi_result.success and r.gurobi_result.total_cost > 0) / max(sum(1 for r in results if r.gurobi_result.success and r.gurobi_result.total_cost > 0), 1)
     
-    winners = [r.analyze_comparison()["winner"] for r in results]
-    pure_llm_wins = winners.count("Pure LLM")
-    z3_wins = winners.count("Z3")
-    gurobi_wins = winners.count("Gurobi")
-    ties = winners.count("Mixed results") + winners.count("Tie")
-    none_wins = winners.count("None")
+    # Calculate average metrics across all queries
+    def calculate_avg_metrics(results_list, planner_type):
+        if not results_list:
+            return {}
+        
+        metrics_key = f"{planner_type}_metrics"
+        total_metrics = {}
+        
+        for result in results_list:
+            metrics = getattr(result, metrics_key)
+            for key, value in metrics.items():
+                if key not in total_metrics:
+                    total_metrics[key] = []
+                total_metrics[key].append(value)
+        
+        return {key: sum(values) / len(values) if isinstance(values[0], (int, float)) else values[0] 
+                for key, values in total_metrics.items()}
+    
+    # Calculate average metrics for each planner
+    pure_llm_avg_metrics = calculate_avg_metrics(results, "pure_llm")
+    z3_avg_metrics = calculate_avg_metrics(results, "z3")
+    gurobi_avg_metrics = calculate_avg_metrics(results, "gurobi")
+    
+    # The winner distribution calculation is no longer needed for the report
     
     # Create report
     report = {
@@ -705,15 +841,10 @@ def generate_batch_report(results: List[ThreeWayBenchmarkComparison], output_dir
             "z3_avg_cost": z3_avg_cost,
             "gurobi_avg_cost": gurobi_avg_cost
         },
-        "winner_distribution": {
-            "pure_llm_wins": pure_llm_wins,
-            "z3_wins": z3_wins,
-            "gurobi_wins": gurobi_wins,
-            "ties": ties,
-            "none_wins": none_wins,
-            "pure_llm_win_rate": pure_llm_wins / total_queries * 100,
-            "z3_win_rate": z3_wins / total_queries * 100,
-            "gurobi_win_rate": gurobi_wins / total_queries * 100
+        "metrics_averages": {
+            "pure_llm_metrics": pure_llm_avg_metrics,
+            "z3_metrics": z3_avg_metrics,
+            "gurobi_metrics": gurobi_avg_metrics
         },
         "detailed_results": [r.to_dict() for r in results]
     }
@@ -745,88 +876,224 @@ def generate_batch_report(results: List[ThreeWayBenchmarkComparison], output_dir
     print(f"  Z3: €{z3_avg_cost:.2f}")
     print(f"  Gurobi: €{gurobi_avg_cost:.2f}")
     
-    print("\n🏆 Winner Distribution:")
-    print(f"  Pure LLM Wins: {pure_llm_wins} ({pure_llm_wins/total_queries*100:.1f}%)")
-    print(f"  Z3 Wins: {z3_wins} ({z3_wins/total_queries*100:.1f}%)")
-    print(f"  Gurobi Wins: {gurobi_wins} ({gurobi_wins/total_queries*100:.1f}%)")
-    print(f"  Ties/Mixed: {ties} ({ties/total_queries*100:.1f}%)")
-    print(f"  All Failed: {none_wins} ({none_wins/total_queries*100:.1f}%)")
+    # Print average metrics summary
+    print("\n📊 AVERAGE METRICS ACROSS ALL QUERIES:")
+    print("  Final Pass Rate:")
+    print(f"    Pure LLM: {pure_llm_avg_metrics.get('final_pass_rate', 0):.1%}")
+    print(f"    Z3: {z3_avg_metrics.get('final_pass_rate', 0):.1%}")
+    print(f"    Gurobi: {gurobi_avg_metrics.get('final_pass_rate', 0):.1%}")
+    
+    print("  Delivery Rate:")
+    print(f"    Pure LLM: {pure_llm_avg_metrics.get('delivery_rate', 0):.1%}")
+    print(f"    Z3: {z3_avg_metrics.get('delivery_rate', 0):.1%}")
+    print(f"    Gurobi: {gurobi_avg_metrics.get('delivery_rate', 0):.1%}")
+    
+    print("  Hard Constraint Pass Rate (Micro):")
+    print(f"    Pure LLM: {pure_llm_avg_metrics.get('hard_constraint_pass_rate_micro', 0):.1%}")
+    print(f"    Z3: {z3_avg_metrics.get('hard_constraint_pass_rate_micro', 0):.1%}")
+    print(f"    Gurobi: {gurobi_avg_metrics.get('hard_constraint_pass_rate_micro', 0):.1%}")
+    
+    print("  Optimality Score:")
+    print(f"    Pure LLM: {pure_llm_avg_metrics.get('optimality', 0):.3f}")
+    print(f"    Z3: {z3_avg_metrics.get('optimality', 0):.3f}")
+    print(f"    Gurobi: {gurobi_avg_metrics.get('optimality', 0):.3f}")
     
     print(f"\n💾 Detailed report saved to: {report_filepath}")
     
     return report
 
+def export_batch_metrics_to_csv(results: List[ThreeWayBenchmarkComparison], output_dir: str = "benchmark_results"):
+    """Export batch metrics to CSV for easy analysis"""
+    if not results:
+        return
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Prepare data for CSV
+    csv_data = []
+    
+    for i, result in enumerate(results):
+        # Create row for Pure LLM
+        csv_data.append({
+            'query_id': i + 1,
+            'query': result.query,
+            'planner': 'Pure LLM',
+            'final_pass_rate': result.pure_llm_metrics['final_pass_rate'],
+            'delivery_rate': result.pure_llm_metrics['delivery_rate'],
+            'hard_constraint_pass_rate_micro': result.pure_llm_metrics['hard_constraint_pass_rate_micro'],
+            'hard_constraint_pass_rate_macro': result.pure_llm_metrics['hard_constraint_pass_rate_macro'],
+            'commonsense_pass_rate': result.pure_llm_metrics['commonsense_pass_rate'],
+            'interactive_plan_repair_success': result.pure_llm_metrics['interactive_plan_repair_success'],
+            'optimality': result.pure_llm_metrics['optimality'],
+            'runtime': result.pure_llm_metrics['runtime'],
+            'cost': result.pure_llm_metrics['cost'],
+            'success': result.pure_llm_result.success,
+            'feasible': result.pure_llm_result.feasible,
+            'status': result.pure_llm_result.status,
+            'model_used': result.pure_llm_result.model_used
+        })
+        
+        # Create row for Z3
+        csv_data.append({
+            'query_id': i + 1,
+            'query': result.query,
+            'planner': 'Z3',
+            'final_pass_rate': result.z3_metrics['final_pass_rate'],
+            'delivery_rate': result.z3_metrics['delivery_rate'],
+            'hard_constraint_pass_rate_micro': result.z3_metrics['hard_constraint_pass_rate_micro'],
+            'hard_constraint_pass_rate_macro': result.z3_metrics['hard_constraint_pass_rate_macro'],
+            'commonsense_pass_rate': result.z3_metrics['commonsense_pass_rate'],
+            'interactive_plan_repair_success': result.z3_metrics['interactive_plan_repair_success'],
+            'optimality': result.z3_metrics['optimality'],
+            'runtime': result.z3_metrics['runtime'],
+            'cost': result.z3_metrics['cost'],
+            'success': result.z3_result.success,
+            'feasible': result.z3_result.feasible,
+            'status': result.z3_result.status,
+            'model_used': result.z3_result.model_used
+        })
+        
+        # Create row for Gurobi
+        csv_data.append({
+            'query_id': i + 1,
+            'query': result.query,
+            'planner': 'Gurobi',
+            'final_pass_rate': result.gurobi_metrics['final_pass_rate'],
+            'delivery_rate': result.gurobi_metrics['delivery_rate'],
+            'hard_constraint_pass_rate_micro': result.gurobi_metrics['hard_constraint_pass_rate_micro'],
+            'hard_constraint_pass_rate_macro': result.gurobi_metrics['hard_constraint_pass_rate_macro'],
+            'commonsense_pass_rate': result.gurobi_metrics['commonsense_pass_rate'],
+            'interactive_plan_repair_success': result.gurobi_metrics['interactive_plan_repair_success'],
+            'optimality': result.gurobi_metrics['optimality'],
+            'runtime': result.gurobi_metrics['runtime'],
+            'cost': result.gurobi_metrics['cost'],
+            'success': result.gurobi_result.success,
+            'feasible': result.gurobi_result.feasible,
+            'status': result.gurobi_result.status,
+            'model_used': result.gurobi_result.model_used
+        })
+    
+    # Create DataFrame and save
+    df = pd.DataFrame(csv_data)
+    csv_filename = f"batch_metrics_{timestamp}.csv"
+    csv_filepath = os.path.join(output_dir, csv_filename)
+    
+    df.to_csv(csv_filepath, index=False)
+    print(f"📊 Metrics exported to CSV: {csv_filepath}")
+    
+    return csv_filepath
+
+def is_rate_limit_error(error_message: str) -> bool:
+    """Check if error is a rate limit error"""
+    if not error_message:
+        return False
+    
+    rate_limit_indicators = [
+        "429",
+        "rate limit",
+        "too many requests",
+        "quota exceeded",
+        "requests per"
+    ]
+    
+    error_lower = error_message.lower()
+    return any(indicator in error_lower for indicator in rate_limit_indicators)
+
+def get_next_available_model(available_models: List[str], current_model: str) -> Optional[str]:
+    """Get next available model from the list"""
+    try:
+        current_index = available_models.index(current_model)
+        if current_index + 1 < len(available_models):
+            return available_models[current_index + 1]
+    except ValueError:
+        pass
+    return None
+
+def run_single_planner_with_fallback(planner_func, planner_name: str, query: str, 
+                                   available_models: List[str], verbose: bool = False) -> SkiBenchmarkResult:
+    """Run a single planner with model fallback on rate limits"""
+    
+    for model_name in available_models:
+        print(f"  Trying model: {model_name}")
+        
+        result = run_single_planner(planner_func, planner_name, query, model_name, verbose, available_models)
+        
+        if result.success:
+            result.model_used = model_name
+            return result
+        
+        if result.error_message and is_rate_limit_error(result.error_message):
+            print(f"  ⚠️  Rate limit hit for {model_name}, trying next model...")
+            continue
+        else:
+            # Non-rate-limit error, return the result
+            result.model_used = model_name
+            return result
+    
+    # All models failed
+    result.model_used = available_models[0] if available_models else "unknown"
+    result.error_message = f"All models failed. Last error: {result.error_message}"
+    return result
+
 def main():
-    parser = argparse.ArgumentParser(description="Pure LLM vs Z3 vs Gurobi Ski Planner Benchmark")
-    parser.add_argument("--query", type=str, help="Single query to benchmark")
-    parser.add_argument("--query_file", type=str, help="File containing a single query")
-    parser.add_argument("--batch_test", action="store_true", help="Run batch test with default queries")
-    parser.add_argument("--batch_file", type=str, help="File containing multiple queries (one per line)")
-    parser.add_argument("--model_name", type=str, default="gpt-4o-mini", help="LLM model to use")
-    parser.add_argument("--max_queries", type=int, default=5, help="Maximum queries for batch test")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
-    parser.add_argument("--output_dir", type=str, default="benchmark_results", help="Output directory for results")
+    """Main function to run benchmark"""
+    parser = argparse.ArgumentParser(description="Run ski trip planner benchmarks.")
+    parser.add_argument("--query", type=str, help="Single query to run")
+    parser.add_argument("--batch_test", action="store_true", help="Run a batch of predefined test queries")
+    parser.add_argument("--query_file", type=str, help="File with queries to run")
+    parser.add_argument("--max_queries", type=int, default=10, help="Max queries to run for batch test")
+    parser.add_argument("--model", type=str, default="DeepSeek-R1", help="Primary LLM model to use")
+    parser.add_argument("--fallback_models", type=str, nargs='+', default=["Phi-3-mini-4k-instruct", "Phi-3-medium-4k-instruct", "Llama-3.2-11B-Vision-Instruct"], help="Fallback models to use when primary model hits rate limits")
+    parser.add_argument("--output_dir", type=str, default="benchmark_results", help="Directory to save benchmark results")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose output for debugging")
     
     args = parser.parse_args()
     
-    print("🎿 SKI PLANNER THREE-WAY BENCHMARK: Pure LLM vs Z3 vs Gurobi")
-    print(f"Model: {args.model_name}")
-    print(f"Output Directory: {args.output_dir}")
+    # Set up available models list
+    available_models = [args.model] + args.fallback_models
     
-    # Ensure output directory exists
-    if not os.path.exists(args.output_dir):
-        os.makedirs(args.output_dir)
-    
-    # Single query benchmark
+    # Select queries based on input method
     if args.query:
-        comparison = run_benchmark_comparison(args.query, args.model_name, args.verbose)
-        print_comparison_summary(comparison)
-        save_benchmark_results(comparison, args.output_dir)
-    
-    # Single query from file
+        # Single query from command line
+        queries = [args.query]
     elif args.query_file:
+        # Load queries from file
         try:
             with open(args.query_file, 'r', encoding='utf-8') as f:
-                query = f.read().strip()
-            comparison = run_benchmark_comparison(query, args.model_name, args.verbose)
-            print_comparison_summary(comparison)
-            save_benchmark_results(comparison, args.output_dir)
+                queries = [line.strip() for line in f if line.strip()]
         except Exception as e:
             print(f"Error reading query file: {e}")
             sys.exit(1)
-    
-    # Batch test with default queries
-    elif args.batch_test:
-        default_queries = [
+    else:
+        # Default batch of test queries
+        queries = [
             "Plan a 3-day ski trip to Livigno for 2 people with budget 1500 euros",
             "Organize a 5-day ski vacation to Zermatt for 4 people with budget 5000 euros and SUV rental",
             "Plan a 7-day ski adventure to Cortina d'Ampezzo for 6 people with budget 8000 euros and equipment rental",
             "Book a 4-day ski trip to Val d'Isère for 3 people with budget 3500 euros and intermediate slopes",
             "Plan a 6-day ski holiday to St. Moritz for 5 people with budget 7000 euros and luxury accommodation"
         ]
-        
-        queries = default_queries[:args.max_queries]
-        results = run_batch_benchmark(queries, args.model_name, args.verbose)
-        generate_batch_report(results, args.output_dir)
     
-    # Batch test from file
-    elif args.batch_file:
-        try:
-            with open(args.batch_file, 'r', encoding='utf-8') as f:
-                queries = [line.strip() for line in f if line.strip()]
-            
-            if args.max_queries:
-                queries = queries[:args.max_queries]
-            
-            results = run_batch_benchmark(queries, args.model_name, args.verbose)
-            generate_batch_report(results, args.output_dir)
-        except Exception as e:
-            print(f"Error reading batch file: {e}")
-            sys.exit(1)
+    # Limit number of queries if max_queries is set
+    if args.max_queries:
+        queries = queries[:args.max_queries]
     
-    else:
-        print("Please specify a query option. Use --help for usage information.")
-        sys.exit(1)
+    print("🎿 SKI PLANNER THREE-WAY BENCHMARK: Pure LLM vs Z3 vs Gurobi")
+    print(f"Available models: {available_models}")
+    print(f"Output Directory: {args.output_dir}")
+    
+    # Ensure output directory exists
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+    
+    # Run batch benchmark
+    results = run_batch_benchmark(queries, available_models, args.verbose)
+    
+    # Generate batch report
+    generate_batch_report(results, args.output_dir)
+    
+    # Export metrics to CSV
+    export_batch_metrics_to_csv(results, args.output_dir)
 
 if __name__ == "__main__":
     main()

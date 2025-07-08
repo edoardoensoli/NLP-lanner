@@ -648,6 +648,12 @@ Accommodation: {accommodation if accommodation else f"{slope_details['resort_nam
         print(f"Error generating ski plan: {e}")
         return f"Ski trip plan for {query['dest']} - {query['days']} days"
 
+def get_plan(query, number, args):
+    # This function will replace the pipeline_ski function
+    # It will take the query, number, and args as input
+    # and return the plan and results
+    pass
+
 def pipeline_ski(query, mode, model, index, model_version=None, verbose=False):
     """Pipeline for ski trip planning using real prompt files"""
     path = f'output_ski/{mode}/mock_llm/{index}/'
@@ -1025,12 +1031,6 @@ def get_resort_details(destination):
         return None
 
 def get_slope_details(destination, skill_level="beginner", people=2):
-    """Get detailed slope information for the best matching resort"""
-    try:
-        # Use the new function to find the best resort
-        resort_match = find_best_resort_by_skill(destination, skill_level, people)
-        
-        slope_info = {
             'total_slopes': resort_match['total_slopes'],
             'longest_run': resort_match['longest_run'],
             'difficulty_available': resort_match['available_difficulty'],

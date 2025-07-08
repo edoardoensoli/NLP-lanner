@@ -1,0 +1,42 @@
+# Python script for adding equipment rental constraints to a Gurobi model.
+
+# Create binary variables for each piece of equipment.
+variables['rent_skis'] = model.addVar(vtype=GRB.BINARY, name="rent_skis")
+variables['rent_boots'] = model.addVar(vtype=GRB.BINARY, name="rent_boots")
+variables['rent_helmet'] = model.addVar(vtype=GRB.BINARY, name="rent_helmet")
+variables['rent_poles'] = model.addVar(vtype=GRB.BINARY, name="rent_poles")
+
+# Get equipment rental prices for the selected resort.
+# Note: We assume equipment_info is a pre-computed dictionary mapping resort_id to its equipment data.
+skis_price = equipment_info[selected_resort].get('Skis', 0)
+boots_price = equipment_info[selected_resort].get('Boots', 0)
+helmet_price = equipment_info[selected_resort].get('Helmet', 0)
+poles_price = equipment_info[selected_resort].get('Poles', 0)
+
+# Add constraints to ensure equipment is available if selected for rent.
+model.addConstr(variables['rent_skis'] * (skis_price - 0.01) >= 0, "skis_available_if_rented")
+model.addConstr(variables['rent_boots'] * (boots_price - 0.01) >= 0, "boots_available_if_rented")
+model.addConstr(variables['rent_helmet'] * (helmet_price - 0.01) >= 0, "helmet_available_if_rented")
+model.addConstr(variables['rent_poles'] * (poles_price - 0.01) >= 0, "poles_available_if_rented")
+
+# Define the total equipment rental cost.
+variables['equipment_cost'] = model.addVar(name="equipment_cost")
+equipment_cost_expr = (
+    variables['rent_skis'] * skis_price +
+    variables['rent_boots'] * boots_price +
+    variables['rent_helmet'] * helmet_price +
+    variables['rent_poles'] * poles_price
+) * people_count * days
+model.addConstr(variables['equipment_cost'] == equipment_cost_expr, "calculate_equipment_cost")
+
+# If the user needs full equipment, enforce rental of all items.
+# This is handled by 'must_rent_equipment=True'.
+if must_rent_equipment:
+    model.addConstr(variables['rent_skis'] == 1, "force_rent_skis")
+    model.addConstr(variables['rent_boots'] == 1, "force_rent_boots")
+    model.addConstr(variables['rent_helmet'] == 1, "force_rent_helmet")
+    model.addConstr(variables['rent_poles'] == 1, "force_rent_poles")
+
+# Based on the examples above, in which the lines start with '#' is the instruction, where the line/lines below it before the next '#' is the corresponding code.
+# Follow the code structure variable names in examples
+# For this below instruction, write corresponding code and respond instruction with code only. Start with ########## Equipment response########## and end with ########## Equipment response ends##########.

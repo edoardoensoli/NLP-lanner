@@ -1,16 +1,17 @@
 import requests
 from dotenv import load_dotenv
 import os
-load_dotenv()
 
 class GitHubModelsClient:
     def __init__(self):
-        # Il tuo token GitHub (sostituisci con una variabile d'ambiente)
         # Load environment variables from .env file
         load_dotenv()
 
-        # Access the TOKEN
-        self.token = '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'
+        # Access the TOKEN from environment variables
+        self.token = os.getenv("API_TOKEN")
+        if not self.token:
+            raise ValueError("API_TOKEN not found. Please ensure it is set in your .env file.")
+            
         self.base_url = "https://models.inference.ai.azure.com"
         self.headers = {
             'Authorization': f'Bearer {self.token}',
@@ -61,16 +62,19 @@ class GitHubModelsClient:
 
 # Esempio di utilizzo
 if __name__ == "__main__":
-    client = GitHubModelsClient()
-    
-    # Query di esempio
-    prompt = ""
-    print("🤖 Inviando richiesta a GitHub Models...")
-    result = client.query_text(prompt, model="DeepSeek-R1")
-    
-    if result:
-        print("\n📖 Risposta:")
-        print("="*50)
-        print(result)
-    else:
-        print("❌ Errore nella richiesta")
+    try:
+        client = GitHubModelsClient()
+        
+        # Query di esempio
+        prompt = "Can you write a simple hello world in python?"
+        print("🤖 Inviando richiesta a GitHub Models...")
+        result = client.query_text(prompt, model="DeepSeek-R1")
+        
+        if result:
+            print("\n📖 Risposta:")
+            print("="*50)
+            print(result)
+        else:
+            print("❌ Errore nella richiesta")
+    except ValueError as e:
+        print(f"❌ Errore di configurazione: {e}")
