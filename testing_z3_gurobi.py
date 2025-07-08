@@ -384,7 +384,8 @@ def extract_cost_breakdown_from_plan(plan_text: str) -> Dict[str, float]:
                      r'Gear[^:]*:\s*€?(\d+(?:,\d{3})*(?:\.\d{2})?)'],
         'transportation': [r'Transportation[^:]*:\s*€?(\d+(?:,\d{3})*(?:\.\d{2})?)', 
                           r'Car[^:]*:\s*€?(\d+(?:,\d{3})*(?:\.\d{2})?)',
-                          r'Travel[^:]*:\s*€?(\d+(?:,\d{3})*(?:\.\d{2})?)'],
+                          r'Travel[^:]*:\s*€?(\d+(?:,\d{3})*(?:\.\d{2})?)',
+                          r'Car Rental[^:]*:\s*€?(\d+(?:,\d{3})*(?:\.\d{2})?)'],
         'lift_tickets': [r'Lift[^:]*:\s*€?(\d+(?:,\d{3})*(?:\.\d{2})?)', 
                         r'Ski Pass[^:]*:\s*€?(\d+(?:,\d{3})*(?:\.\d{2})?)',
                         r'Tickets[^:]*:\s*€?(\d+(?:,\d{3})*(?:\.\d{2})?)'],
@@ -410,6 +411,13 @@ def extract_cost_from_plan(plan_text: str) -> float:
     """Extract total cost from plan text with better parsing"""
     import re
     
+    # First, try to calculate total from cost breakdown (more reliable for Gurobi)
+    breakdown = extract_cost_breakdown_from_plan(plan_text)
+    if breakdown:
+        total_from_breakdown = sum(breakdown.values())
+        if total_from_breakdown > 0:
+            return total_from_breakdown
+    
     # Look for patterns like "Total Cost: €1234.56" or "Cost: €1234"
     cost_patterns = [
         r'Total Cost:\s*€?(\d+(?:,\d{3})*(?:\.\d{2})?)',
@@ -429,7 +437,11 @@ def extract_cost_from_plan(plan_text: str) -> float:
             # Take the last (most recent) cost found
             cost_str = matches[-1].replace(',', '')
             try:
-                return float(cost_str)
+                cost = float(cost_str)
+                # If this contradicts the breakdown calculation, prefer breakdown
+                if breakdown and cost == 0 and sum(breakdown.values()) > 0:
+                    return sum(breakdown.values())
+                return cost
             except ValueError:
                 continue
     

@@ -186,18 +186,26 @@ def pipeline_ski(query, mode, model, index, model_version=None, verbose=False):
         if verbose:
             print("Step 3: Querying ski APIs for available options...")
         
-        # Get resort options with real data prioritization
+        # Get resort options with real data prioritization and country fallback
         resort_data = ski_resorts.run(destination)
+        if isinstance(resort_data, str):  # No results found - try country/continent fallback
+            if destination.lower() in ['livigno', 'cortina', 'val gardena']:
+                resort_data = ski_resorts.get_resort_by_country('Italy')
+            elif destination.lower() in ['zermatt', 'st. moritz', 'verbier']:
+                resort_data = ski_resorts.get_resort_by_country('Switzerland') 
+            else:
+                resort_data = ski_resorts.get_resort_by_continent('Europe')
+        
         if isinstance(resort_data, pd.DataFrame) and not resort_data.empty:
             resorts = resort_data.to_dict('records')
             if verbose:
                 print(f"✅ Found {len(resorts)} real resort options from API")
         else:
-            # Fallback data only when API fails
+            # Fallback data only when API and country/continent search both fail
             resorts = [{'Resort': destination, 'Price_day': 150, 'Beds': 2, 'Rating': 4}]
             fallback_used['resorts'] = True
             if verbose:
-                print(f"⚠️  Using fallback resort data (API returned no results)")
+                print("⚠️  Using fallback resort data (API and country/continent search returned no results)")
         
         # Get slope options with real data prioritization
         slope_data = ski_slopes.run(destination)
@@ -211,8 +219,13 @@ def pipeline_ski(query, mode, model, index, model_version=None, verbose=False):
             if verbose:
                 print(f"⚠️  Using fallback slope data (API returned no results)")
         
-        # Get equipment options with real data prioritization
+        # Get equipment options with real data prioritization and Europe fallback
         equipment_data = ski_rent.run(destination)
+        if isinstance(equipment_data, str):  # No data found for specific destination
+            # Try to get European data as fallback
+            all_data = ski_rent.data
+            equipment_data = all_data[all_data['Continent'] == 'Europe'].head(20)  # Sample European prices
+        
         if isinstance(equipment_data, pd.DataFrame) and not equipment_data.empty:
             equipment = equipment_data.to_dict('records')
             if verbose:
@@ -221,10 +234,15 @@ def pipeline_ski(query, mode, model, index, model_version=None, verbose=False):
             equipment = [{'Equipment': 'Skis', 'Price_day': 25}, {'Equipment': 'Boots', 'Price_day': 15}]
             fallback_used['equipment'] = True
             if verbose:
-                print(f"⚠️  Using fallback equipment data (API returned no results)")
+                print("⚠️  Using fallback equipment data (API and Europe search returned no results)")
         
-        # Get car options with real data prioritization
+        # Get car options with real data prioritization and Europe fallback
         car_data = ski_car.run(destination)
+        if isinstance(car_data, str):  # No data found for specific destination
+            # Try to get European data as fallback
+            all_data = ski_car.data
+            car_data = all_data[all_data['Continent'] == 'Europe'].head(10)  # Sample European car options
+        
         if isinstance(car_data, pd.DataFrame) and not car_data.empty:
             cars = car_data.to_dict('records')
             if verbose:
@@ -233,7 +251,7 @@ def pipeline_ski(query, mode, model, index, model_version=None, verbose=False):
             cars = [{'Car': 'SUV', 'Price_day': 80, 'Fuel': 'Petrol'}]
             fallback_used['cars'] = True
             if verbose:
-                print(f"⚠️  Using fallback car data (API returned no results)")
+                print("⚠️  Using fallback car data (API and Europe search returned no results)")
         
         # Check if equipment is requested in query
         equipment_requested = any(keyword in query.lower() for keyword in ['equipment', 'gear', 'ski rental', 'rent'])
@@ -260,6 +278,27 @@ def pipeline_ski(query, mode, model, index, model_version=None, verbose=False):
         for i, eq in enumerate(equipment):
             var = Bool(f"equipment_{i}")
             equipment_vars.append(var)
+        
+        # Add equipment constraints if equipment was requested
+        if equipment_requested and equipment:
+            # When equipment is requested, ensure at least basic ski equipment is selected
+            # Find equipment types and ensure each required type is selected
+            equipment_types = {}
+            for i, eq in enumerate(equipment):
+                eq_type = eq.get('Equipment', 'Unknown')
+                if eq_type not in equipment_types:
+                    equipment_types[eq_type] = []
+                equipment_types[eq_type].append(i)
+            
+            # For each required equipment type, ensure at least one is selected
+            required_types = ['Skis', 'Boots']  # Minimum required equipment for skiing
+            for req_type in required_types:
+                if req_type in equipment_types:
+                    # At least one of this equipment type must be selected
+                    type_vars = [equipment_vars[i] for i in equipment_types[req_type]]
+                    solver.add(Sum([If(var, 1, 0) for var in type_vars]) >= 1)
+                    if verbose:
+                        print(f"✅ Added constraint: At least one {req_type} must be selected")
         
         # Car selection variables
         car_vars = []
@@ -313,6 +352,15 @@ def pipeline_ski(query, mode, model, index, model_version=None, verbose=False):
         # Step 5: Solve with Z3
         if verbose:
             print("Step 5: Solving with Z3...")
+        
+        # NOTE: Z3 planner now uses the same data loading strategy as Gurobi planner:
+        # 1. Resort data: Try destination first, then country fallback, then continent fallback
+        # 2. Equipment data: Try destination first, then Europe-wide search as fallback
+        # 3. Car data: Try destination first, then Europe-wide search as fallback
+        # This ensures fair comparison between Z3 and Gurobi solvers.
+        
+        if verbose:
+            print("📊 Z3 planner using identical data loading strategy as Gurobi for fair comparison")
         
         # Try to minimize cost
         opt = Optimize()
