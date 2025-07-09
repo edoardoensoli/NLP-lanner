@@ -192,6 +192,13 @@ yarn-error.log*
 travelplanner_unsat.csv
 database/
 database_backup/
+nlp-lanner-env/
+nlp_planner_env/
+
+# Generated optimization files
+*.ilp
+*.lp
+*.sol
 *.gz
 *.zip
 *.tar

@@ -1,2 +1,0 @@
-# Mock code for: Transportation methods
-pass

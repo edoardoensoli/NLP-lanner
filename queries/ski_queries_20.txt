@@ -1,0 +1,39 @@
+1. I want to go to a ski resort in Austria for 5 days. We are 3 people, we need a SUV with diesel fuel and we want to rent skis and boots for 2 people. We also are expert skiers looking for black slopes. We have a budget of 3000 euros.
+
+2. Planning a ski trip to France for 7 days. We are 2 people, need a sedan with petrol fuel and want to rent helmet and poles for both. We prefer blue slopes as beginners. Budget is 2500 euros.
+
+3. Looking for a ski vacation in Switzerland for 4 days. We are 4 people, need a pick up truck with hybrid fuel and want to rent skis for 3 people. We are intermediate skiers wanting red slopes. Budget is 4000 euros.
+
+4. I want to ski in Italy for 6 days. We are 1 person, need a cabriolet with electric fuel and want to rent boots and helmet. I prefer black slopes for advanced skiing. Budget is 2000 euros.
+
+5. Planning a trip to Norway for 8 days. We are 5 people, need a SUV with petrol fuel and want to rent skis and poles for 4 people. We like blue slopes for easy skiing. Budget is 3500 euros.
+
+6. Looking for skiing in Canada for 3 days. We are 2 people, need a sedan with diesel fuel and want to rent helmet for 1 person. We prefer red slopes for intermediate level. Budget is 1800 euros.
+
+7. I want to go skiing in Germany for 5 days. We are 3 people, need a pick up with electric fuel and want to rent skis, boots and helmet for all. We are beginners looking for blue slopes. Budget is 2800 euros.
+
+8. Planning a ski vacation in Japan for 9 days. We are 4 people, need a SUV with hybrid fuel and want to rent poles for 2 people. We are expert skiers wanting black slopes. Budget is 5000 euros.
+
+9. Looking for a ski trip to Sweden for 6 days. We are 2 people, need a cabriolet with petrol fuel and want to rent boots and poles for both. We prefer red slopes. Budget is 3200 euros.
+
+10. I want to ski in Chile for 7 days. We are 3 people, need a sedan with diesel fuel and want to rent skis and helmet for 2 people. We like blue slopes for easy skiing. Budget is 2600 euros.
+
+11. Planning skiing in Finland for 4 days. We are 1 person, need a pick up with electric fuel and want to rent all equipment (skis, boots, helmet, poles). I prefer black slopes. Budget is 2200 euros.
+
+12. Looking for a ski vacation in New Zealand for 8 days. We are 6 people, need a SUV with petrol fuel and want to rent skis for 4 people. We are intermediate skiers wanting red slopes. Budget is 4500 euros.
+
+13. I want to go skiing in Spain for 5 days. We are 2 people, need a cabriolet with hybrid fuel and want to rent boots and helmet for both. We prefer blue slopes as beginners. Budget is 2400 euros.
+
+14. Planning a trip to Argentina for 10 days. We are 4 people, need a sedan with diesel fuel and want to rent poles for 3 people. We are expert skiers looking for black slopes. Budget is 3800 euros.
+
+15. Looking for skiing in United States for 6 days. We are 3 people, need a pick up with electric fuel and want to rent skis and boots for all. We prefer red slopes. Budget is 3600 euros.
+
+16. I want to ski in Slovenia for 4 days. We are 2 people, need a SUV with petrol fuel and want to rent helmet for 1 person. We like blue slopes for easy skiing. Budget is 2000 euros.
+
+17. Planning a ski vacation in Poland for 7 days. We are 5 people, need a cabriolet with diesel fuel and want to rent skis and poles for 3 people. We are intermediate skiers wanting red slopes. Budget is 3400 euros.
+
+18. Looking for a ski trip to Czech Republic for 5 days. We are 3 people, need a sedan with hybrid fuel and want to rent boots for 2 people. We prefer black slopes for advanced skiing. Budget is 2700 euros.
+
+19. I want to go skiing in Bulgaria for 8 days. We are 4 people, need a pick up with electric fuel and want to rent helmet and poles for all. We are beginners looking for blue slopes. Budget is 3000 euros.
+
+20. Planning skiing in Romania for 6 days. We are 2 people, need a SUV with petrol fuel and want to rent skis for both. We prefer red slopes for intermediate level. Budget is 2500 euros.

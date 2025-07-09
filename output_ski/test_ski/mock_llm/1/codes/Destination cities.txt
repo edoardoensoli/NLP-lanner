@@ -1,4 +1,0 @@
-# Destination setup
-destination_country = 'Italy'
-selected_resorts = ['Livigno', 'Cortina', 'Madonna di Campiglio']
-all_resorts = selected_resorts

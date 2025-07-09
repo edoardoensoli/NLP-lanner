@@ -1,4 +1,0 @@
-# Car rental variables
-variables['car_rental'] = Bool('car_rental')
-variables['car_type'] = Int('car_type')
-s.add(And(variables['car_type'] >= 0, variables['car_type'] <= 3))

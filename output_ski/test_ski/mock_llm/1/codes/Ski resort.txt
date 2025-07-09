@@ -1,3 +1,0 @@
-# Resort variables
-variables['resort_index'] = Int('resort_index')
-s.add(And(variables['resort_index'] >= 0, variables['resort_index'] < len(selected_resorts)))

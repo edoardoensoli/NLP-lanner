@@ -172,7 +172,7 @@ def compare_with_expected(query, expected):
 
 def analyze_query_complexity(results):
     """Analyze complexity of test queries"""
-    print(f"\n📊 QUERY COMPLEXITY ANALYSIS")
+    print(f"\nQUERY COMPLEXITY ANALYSIS")
     print("-" * 40)
     
     complexity_counts = {"simple": 0, "medium": 0, "complex": 0}
