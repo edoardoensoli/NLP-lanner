@@ -55,96 +55,62 @@ class SkiResorts:
             return f"There are no ski resorts with rating >= {min_rating}."
         return results
 
-    def run(self, destination: str, query: str = None) -> DataFrame:
-        """Search for ski resort accommodations by resort name with fuzzy matching and country fallback."""
-        # First try exact match on resort name
-        results = self.data[self.data["Resort"].str.lower() == destination.lower()]
-        
-        # If no exact match, try fuzzy matching (contains) on the resort name
+    def run(self, resort: str) -> DataFrame:
+        """Search for ski resort accommodations by resort name."""
+        results = self.data[self.data["Resort"] == resort]
+        results = results.reset_index(drop=True)
         if len(results) == 0:
-            results = self.data[self.data["Resort"].str.contains(destination, case=False, na=False)]
+            return f"There are no accommodations in {resort}."
+        return results
+
+    def run_for_all_resorts(self, all_resorts, resorts: list) -> tuple:
+        """Search for accommodations for all resorts."""
+        results_beds = Array('resort_beds', IntSort(), IntSort())
+        results_price = Array('resort_price', IntSort(), IntSort())
+        results_access = Array('resort_access', IntSort(), IntSort())
+        results_rating = Array('resort_rating', IntSort(), RealSort())
         
-        # If still no match, try to find by country
-        if len(results) == 0:
-            country = self.get_country_from_destination(destination)
-            if country:
-                results = self.get_resort_by_country(country)
+        access_types = ['Train', 'Car', 'Bus']
+        
+        for i, resort in enumerate(resorts):
+            result = self.data[self.data["Resort"] == resort]
+            if len(result) != 0:
+                resort_idx = all_resorts.index(resort)
+                # Store number of accommodation options
+                results_beds = Store(results_beds, resort_idx, IntVal(len(result)))
+                
+                # Store average price (can be modified to store array of all prices)
+                avg_price = int(result['Price_day'].mean())
+                results_price = Store(results_price, resort_idx, IntVal(avg_price))
+                
+                # Store most common access type (encoded as int)
+                most_common_access = result['Access'].mode().iloc[0]
+                access_idx = access_types.index(most_common_access)
+                results_access = Store(results_access, resort_idx, IntVal(access_idx))
+                
+                # Store average rating
+                avg_rating = float(result['Rating'].mean())
+                results_rating = Store(results_rating, resort_idx, RealVal(avg_rating))
+            else:
+                resort_idx = all_resorts.index(resort)
+                results_beds = Store(results_beds, resort_idx, IntVal(-1))
+                results_price = Store(results_price, resort_idx, IntVal(-1))
+                results_access = Store(results_access, resort_idx, IntVal(-1))
+                results_rating = Store(results_rating, resort_idx, RealVal(-1.0))
+        
+        return results_beds, results_price, results_access, results_rating
 
-        return results.reset_index(drop=True)
-
-    def get_country_from_destination(self, destination: str) -> Optional[str]:
-        """Get the country from a destination name using a mapping."""
-        country_mappings = {
-            'zermatt': 'Switzerland',
-            'livigno': 'Italy',
-            'cortina': 'Italy',
-            'val d\'isère': 'France',
-            'val disere': 'France',
-            'st. moritz': 'Switzerland',
-            'st moritz': 'Switzerland',
-            'chamonix': 'France',
-            'verbier': 'Switzerland',
-            'davos': 'Switzerland',
-            'klosters': 'Switzerland',
-            'whistler': 'Canada',
-            'aspen': 'United States',
-            'vail': 'United States',
-            'gstaad': 'Switzerland',
-            'interlaken': 'Switzerland',
-            'grindelwald': 'Switzerland',
-            'andermatt': 'Switzerland',
-            'laax': 'Switzerland',
-            'flims': 'Switzerland',
-            'arosa': 'Switzerland',
-            'wengen': 'Switzerland',
-            'murren': 'Switzerland',
-            'saas-fee': 'Switzerland',
-            'les gets': 'France',
-            'morzine': 'France',
-            'courchevel': 'France',
-            'meribel': 'France',
-            'tignes': 'France',
-            'la plagne': 'France',
-            'les arcs': 'France',
-            'alpe d\'huez': 'France',
-            'avoriaz': 'France',
-            'serre chevalier': 'France',
-            'megève': 'France',
-            'courmayeur': 'Italy',
-            'sestriere': 'Italy',
-            'madonna di campiglio': 'Italy',
-            'val gardena': 'Italy',
-            'alta badia': 'Italy',
-            'plan de corones': 'Italy',
-            'kronplatz': 'Italy',
-            'solden': 'Austria',
-            'ischgl': 'Austria',
-            'st. anton': 'Austria',
-            'st anton': 'Austria',
-            'kitzbuhel': 'Austria',
-            'lecn': 'Austria',
-            'mayrhofen': 'Austria',
-            'obergurgl': 'Austria',
-            'saalbach': 'Austria',
-            'hinterglemm': 'Austria',
-            'zell am see': 'Austria',
-            'kaprun': 'Austria',
-            'schladming': 'Austria',
-            'flachau': 'Austria',
-            'wagrain': 'Austria',
-            'st johann': 'Austria',
-            'crans-montana': 'Switzerland',
-            'switzerland': 'Switzerland',
-            'italy': 'Italy',
-            'france': 'France',
-            'austria': 'Austria',
-            'canada': 'Canada',
-            'united states': 'United States'
-        }
-        return country_mappings.get(destination.lower())
+    def get_info(self, info_array, resort_idx, info_type):
+        """Get information for a specific resort."""
+        if info_type in ['beds', 'price', 'access']:
+            return Select(info_array, resort_idx)
+        elif info_type == 'rating':
+            return Select(info_array, resort_idx)
+        else:
+            return Select(info_array, resort_idx)
 
 class SkiSlopes:
-    def __init__(self, path="dataset_ski/slopes/slopes.csv"):
+    def __init__(self, path="dataset_ski/slopes/ski_slopes.csv"):
         self.path = path
         # ID,Resort,Country,Continent,Difficult_Slope,Total_Slopes,Longest_Run
         self.data = pd.read_csv(self.path).dropna()
@@ -213,16 +179,15 @@ class SkiRent:
         self.data = pd.read_csv(self.path).dropna()
         print("Ski Equipment Rental loaded.")
 
-    def get_equipment_types(self) -> list:
-        """Returns a list of unique equipment types."""
-        return self.data['Equipment'].unique().tolist()
+    def load_db(self):
+        self.data = pd.read_csv(self.path)
 
-    def get_equipment_by_type(self, type: str) -> DataFrame:
-        """Search for ski equipment by type."""
-        results = self.data[self.data["Equipment"] == type]
+    def get_equipment_by_type(self, equipment: str) -> DataFrame:
+        """Search for equipment by type (Skis, Boots, Helmet, Poles)."""
+        results = self.data[self.data["Equipment"] == equipment]
         results = results.reset_index(drop=True)
         if len(results) == 0:
-            return f"There is no {type} rental available."
+            return f"There is no {equipment} rental available."
         return results
 
     def run(self, resort: str) -> DataFrame:

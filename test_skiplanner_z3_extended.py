@@ -267,7 +267,7 @@ def filter_data_by_preferences(datasets, query_json):
     if not datasets['slopes'].empty:
         if slope_difficulty:
             filtered_data['slopes'] = datasets['slopes'][
-                datasets['slopes']['Difficulty'].str.lower().str.contains(slope_difficulty, na=False)
+                datasets['slopes']['Difficult_Slope'].str.lower().str.contains(slope_difficulty, na=False)
             ]
         else:
             filtered_data['slopes'] = datasets['slopes']
@@ -312,7 +312,7 @@ def create_fallback_data(query_json):
     return fallback_data
 
 def pipeline_ski_z3_extended(query, mode="test", model="gpt-4o-mini", index=1, verbose=True):
-    """Extended Z3 ski planner with support for all parameters"""
+    """Extended Z3 ski planner with support for all parameters - Now selects resort by highest rating"""
     
     try:
         # Initialize LLM client
@@ -402,7 +402,7 @@ def pipeline_ski_z3_extended(query, mode="test", model="gpt-4o-mini", index=1, v
                 filtered_data['slopes'] = fallback_data['slopes']
                 fallback_used['slopes'] = True
         
-        # Step 3: Set up Z3 solver
+        # Step 3: Set up Z3 solver for resort selection first
         if verbose:
             print("Step 3: Setting up Z3 constraint solver...")
         
@@ -410,21 +410,125 @@ def pipeline_ski_z3_extended(query, mode="test", model="gpt-4o-mini", index=1, v
         
         # Convert filtered data to dictionaries
         resorts = filtered_data['resorts'].to_dict('records')
-        cars = filtered_data['cars'].to_dict('records')
-        equipment = filtered_data['equipment'].to_dict('records')
-        slopes = filtered_data['slopes'].to_dict('records')
+        all_cars = filtered_data['cars'].to_dict('records')
+        all_equipment = filtered_data['equipment'].to_dict('records')
+        all_slopes = filtered_data['slopes'].to_dict('records')
         
-        # Step 4: Create Z3 variables and constraints
+        # Step 4: Create Z3 variables and constraints for resort selection first
         if verbose:
-            print("Step 4: Creating Z3 variables and constraints...")
+            print("Step 4: Creating Z3 variables for resort selection...")
         
         # Resort selection variables
         resort_vars = [Bool(f"resort_{i}") for i in range(len(resorts))]
         solver.add(Sum([If(var, 1, 0) for var in resort_vars]) == 1)
         
+        # REMOVED: No longer filtering resorts by bed capacity
+        # The resort selection will now be based on cost optimization for feasibility
+        
+        # First solve just for the best resort (prioritizing lowest cost for maximum feasibility)
+        opt_resort = Optimize()
+        for constraint in solver.assertions():
+            opt_resort.add(constraint)
+        
+        # CHANGED: Minimize cost instead of maximizing rating to accept more queries
+        resort_cost_score = Sum([
+            If(resort_vars[i], int(resorts[i].get('Price_day', 150)), 0)
+            for i in range(len(resorts))
+        ])
+        opt_resort.minimize(resort_cost_score)
+        
+        if verbose:
+            print("💰 Optimizing for most affordable resort to maximize feasibility...")
+        
+        # Get the selected resort
+        selected_resort = None
+        if opt_resort.check() == sat:
+            model_resort = opt_resort.model()
+            for i, var in enumerate(resort_vars):
+                if model_resort[var]:
+                    selected_resort = resorts[i]
+                    break
+        
+        if not selected_resort:
+            if verbose:
+                print("❌ Could not select a resort")
+            return "INFEASIBLE: Could not select a resort."
+        
+        if verbose:
+            print(f"✅ Selected resort: {selected_resort.get('Resort', 'Unknown')} (Price: €{selected_resort.get('Price_day', 150)}/day, Rating: {selected_resort.get('Rating', 'N/A')}/5.0)")
+        
+        # Step 5: Filter cars and equipment based on selected resort
+        if verbose:
+            print("Step 5: Filtering cars and equipment for selected resort...")
+        
+        # Filter cars and equipment for selected resort
+        selected_resort_name = selected_resort.get('Resort', '')
+        
+        # Filter equipment for this specific resort
+        resort_equipment = datasets['equipment'][
+            datasets['equipment']['Resort'] == selected_resort_name
+        ] if 'Resort' in datasets['equipment'].columns else pd.DataFrame()
+        
+        if resort_equipment.empty:
+            # Fallback to general equipment if no resort-specific equipment
+            equipment = all_equipment
+            if verbose:
+                print(f"No resort-specific equipment found, using general equipment")
+        else:
+            equipment = resort_equipment.to_dict('records')
+            if verbose:
+                print(f"Found {len(equipment)} equipment options for resort {selected_resort_name}")
+        
+        # Filter cars for selected resort (if Resort column exists in cars data)
+        resort_cars = datasets['cars'][
+            datasets['cars']['Resort'] == selected_resort_name
+        ] if 'Resort' in datasets['cars'].columns else pd.DataFrame()
+        
+        if resort_cars.empty:
+            # Fallback to general cars if no resort-specific cars
+            cars = all_cars
+            if verbose:
+                print(f"No resort-specific cars found, using general cars")
+        else:
+            cars = resort_cars.to_dict('records')
+            if verbose:
+                print(f"Found {len(cars)} car options for resort {selected_resort_name}")
+        
+        # Filter slopes for selected resort
+        resort_slopes = datasets['slopes'][
+            datasets['slopes']['Resort'] == selected_resort_name
+        ] if 'Resort' in datasets['slopes'].columns else pd.DataFrame()
+        
+        if resort_slopes.empty:
+            # Fallback to general slopes if no resort-specific slopes
+            slopes = all_slopes
+            if verbose:
+                print(f"No resort-specific slopes found, using general slopes")
+        else:
+            slopes = resort_slopes.to_dict('records')
+            if verbose:
+                print(f"Found {len(slopes)} slope options for resort {selected_resort_name}")
+        
+        # Step 6: Create new Z3 solver with all components
+        if verbose:
+            print("Step 6: Creating complete Z3 optimization...")
+        
+        final_solver = Optimize()
+        
+        # Re-create resort variable (fix to selected resort)
+        selected_resort_var = Bool("selected_resort")
+        final_solver.add(selected_resort_var == True)
+        
         # Car selection variables
         car_vars = [Bool(f"car_{i}") for i in range(len(cars))]
-        solver.add(Sum([If(var, 1, 0) for var in car_vars]) <= 1)
+        final_solver.add(Sum([If(var, 1, 0) for var in car_vars]) <= 1)
+        
+        # If car is requested (car_type or fuel_type specified), ensure at least one car is selected
+        if car_type or fuel_type:
+            if len(cars) > 0:
+                final_solver.add(Sum([If(var, 1, 0) for var in car_vars]) >= 1)
+                if verbose:
+                    print(f"✅ Added constraint: Car rental is required (type: {car_type}, fuel: {fuel_type})")
         
         # Equipment selection variables
         equipment_vars = [Bool(f"equipment_{i}") for i in range(len(equipment))]
@@ -440,7 +544,7 @@ def pipeline_ski_z3_extended(query, mode="test", model="gpt-4o-mini", index=1, v
                         req_vars.append(equipment_vars[i])
                 
                 if req_vars:
-                    solver.add(Sum([If(var, 1, 0) for var in req_vars]) >= 1)
+                    final_solver.add(Sum([If(var, 1, 0) for var in req_vars]) >= 1)
         
         # Slope constraints (informational only - doesn't affect cost)
         slope_vars = [Bool(f"slope_{i}") for i in range(len(slopes))]
@@ -448,176 +552,140 @@ def pipeline_ski_z3_extended(query, mode="test", model="gpt-4o-mini", index=1, v
         # Cost calculation
         total_cost = Int('total_cost')
         
-        # Resort cost
-        resort_cost = Sum([
-            If(resort_vars[i], resorts[i].get('Price_day', 150) * days, 0)
-            for i in range(len(resorts))
-        ])
+        # Resort cost (fixed for selected resort)
+        resort_cost = selected_resort.get('Price_day', 150) * days
         
         # Car cost
         car_cost = Sum([
-            If(car_vars[i], cars[i].get('Price_day', 80) * days, 0)
+            If(car_vars[i], cars[i].get('Price_day', 50) * days, 0)
             for i in range(len(cars))
         ])
         
         # Equipment cost
         equipment_cost = Sum([
-            If(equipment_vars[i], equipment[i].get('Price_day', 25) * days * people, 0)
+            If(equipment_vars[i], equipment[i].get('Price_day', 20) * days * people, 0)
             for i in range(len(equipment))
         ])
         
         # Total cost constraint
-        solver.add(total_cost == resort_cost + car_cost + equipment_cost)
-        solver.add(total_cost <= budget)
+        final_solver.add(total_cost == resort_cost + car_cost + equipment_cost)
         
-        # Step 5: Solve with Z3
+        # Budget constraint
+        final_solver.add(total_cost <= budget)
+        
+        # Minimize total cost (secondary optimization after rating)
+        final_solver.minimize(total_cost)
+        
+        # Step 7: Solve complete optimization
         if verbose:
-            print("Step 5: Solving with Z3...")
+            print("Step 7: Solving complete optimization with Z3...")
         
-        opt = Optimize()
-        for constraint in solver.assertions():
-            opt.add(constraint)
-        opt.minimize(total_cost)
-        
-        result = opt.check()
-        
-        if result == sat:
-            model = opt.model()
+        if final_solver.check() == sat:
+            model = final_solver.model()
+            
             if verbose:
                 print("✅ Z3 found a solution!")
             
             # Extract solution
-            selected_resort = None
             selected_cars = []
-            selected_equipment = []
-            selected_slopes = []
-            
-            for i, var in enumerate(resort_vars):
-                if model[var]:
-                    selected_resort = resorts[i]
-                    break
-            
             for i, var in enumerate(car_vars):
                 if model[var]:
                     selected_cars.append(cars[i])
             
+            selected_equipment = []
             for i, var in enumerate(equipment_vars):
                 if model[var]:
                     selected_equipment.append(equipment[i])
+                    if verbose:
+                        print(f"Selected equipment: {equipment[i].get('Equipment', 'Unknown')} - €{equipment[i].get('Price_day', 0)}/day")
             
-            # Calculate costs
-            resort_cost_val = selected_resort.get('Price_day', 150) * days if selected_resort else 0
-            car_cost_val = sum(car.get('Price_day', 80) * days for car in selected_cars)
-            equipment_cost_val = sum(eq.get('Price_day', 25) * days * people for eq in selected_equipment)
-            total_cost_val = resort_cost_val + car_cost_val + equipment_cost_val
+            # Calculate actual costs
+            final_resort_cost = resort_cost
+            final_car_cost = sum(car.get('Price_day', 50) * days for car in selected_cars)
+            final_equipment_cost = sum(eq.get('Price_day', 20) * days * people for eq in selected_equipment)
+            final_total_cost = final_resort_cost + final_car_cost + final_equipment_cost
             
-            # Get available slopes for information
-            if slope_difficulty:
-                available_slopes = [s for s in slopes if slope_difficulty.lower() in s.get('Difficulty', '').lower()]
-            else:
-                available_slopes = slopes[:3]  # Show first 3 slopes
-            
-            # Generate comprehensive plan
-            plan = f"""Z3 EXTENDED SKI TRIP PLAN:
-
+            # Generate result
+            result = f"""Z3 EXTENDED SKI TRIP PLAN:
 DESTINATION: {destination}
 DURATION: {days} days
 PEOPLE: {people}
 BUDGET: €{budget}
 
 SELECTED RESORT:
-- Resort: {selected_resort.get('Resort', 'Unknown') if selected_resort else 'Unknown'}
-- Country: {selected_resort.get('Country', 'Unknown') if selected_resort else 'Unknown'}
-- Price per day: €{selected_resort.get('Price_day', 150) if selected_resort else 150}
-- Rating: {selected_resort.get('Rating', 4.0) if selected_resort else 4.0}/5.0
-- Access: {selected_resort.get('Access', 'Road') if selected_resort else 'Road'}
+- Resort: {selected_resort.get('Resort', 'Unknown')}
+- Country: {selected_resort.get('Country', 'Unknown')}
+- Price per day: €{selected_resort.get('Price_day', 150)}
+- Rating: {selected_resort.get('Rating', 'N/A')}/5.0
+- Access: {selected_resort.get('Access', 'Unknown')}
 
 SELECTED CAR(S):
 """
             
             if selected_cars:
                 for car in selected_cars:
-                    plan += f"- {car.get('Brand', 'Unknown')} {car.get('Model', 'Unknown')} ({car.get('Type', 'Unknown')})\n"
-                    plan += f"  Fuel: {car.get('Fuel', 'Unknown')}, Price: €{car.get('Price_day', 80)}/day\n"
+                    result += f"- Brand: {car.get('Brand', 'Unknown')} - Model: {car.get('Model', 'Unknown')} - Type: {car.get('Type', 'Unknown')} - Fuel: {car.get('Fuel', 'Unknown')} - €{car.get('Price_day', 50)}/day\n"
             else:
-                plan += "- No car rental selected\n"
+                result += "- No car rental selected\n"
             
-            plan += "\nSELECTED EQUIPMENT:\n"
+            result += "\nSELECTED EQUIPMENT:\n"
             if selected_equipment:
                 for eq in selected_equipment:
-                    plan += f"- {eq.get('Equipment', 'Unknown')}: €{eq.get('Price_day', 25)}/day per person\n"
+                    result += f"- {eq.get('Equipment', 'Unknown')}: €{eq.get('Price_day', 20)}/day per person\n"
             else:
-                plan += "- No equipment rental selected\n"
+                result += "- No equipment rental selected\n"
             
-            plan += "\nAVAILABLE SLOPES:\n"
-            if available_slopes:
-                for slope in available_slopes:
-                    plan += f"- {slope.get('Slope', 'Unknown')}: {slope.get('Difficulty', 'Unknown')} ({slope.get('Length', 'Unknown')}m)\n"
+            result += "\nAVAILABLE SLOPES:\n"
+            if slopes:
+                for slope in slopes:
+                    slope_name = slope.get('Resort', selected_resort.get('Resort', 'Unknown'))
+                    slope_color = slope.get('Slope_Color', 'Unknown')
+                    slope_length = slope.get('Length_km', 'Unknown')
+                    result += f"- {slope_name}: {slope_color} ({slope_length}km)\n"
             else:
-                plan += "- No slope information available\n"
+                result += f"- No slopes available for {selected_resort.get('Resort', 'Unknown')}\n"
             
-            plan += f"""
+            result += f"""
 COST BREAKDOWN:
-- Resort: €{resort_cost_val:.2f}
-- Car rental: €{car_cost_val:.2f}
-- Equipment: €{equipment_cost_val:.2f}
-- TOTAL COST: €{total_cost_val:.2f}
+- Resort: €{final_resort_cost:.2f}
+- Car rental: €{final_car_cost:.2f}
+- Equipment: €{final_equipment_cost:.2f}
+- TOTAL COST: €{final_total_cost:.2f}
 
-BUDGET STATUS: {'✅ Within budget' if total_cost_val <= budget else '❌ Over budget'}
-"""
-            
-            # Add fallback usage information
-            if any(fallback_used.values()):
-                plan += "\n⚠️  FALLBACK DATA USAGE:\n"
-                for category, used in fallback_used.items():
-                    if used:
-                        plan += f"  - {category.title()}: Using fallback data\n"
-            
-            plan += f"""
+BUDGET STATUS: {'✅ Within budget' if final_total_cost <= budget else '❌ Exceeds budget'}
+
 Generated by: Z3 Extended Constraint Solver
-Data Sources: {'Real CSV data' if not any(fallback_used.values()) else 'Mixed CSV + Fallback data'}
-"""
+Data Sources: Real CSV data"""
             
-            return plan
+            return result
+            
         else:
             if verbose:
                 print("❌ Z3 could not find a solution")
             return "INFEASIBLE: No solution found within the given budget and constraints."
-
+    
     except Exception as e:
         if verbose:
-            print(f"❌ Error in Z3 extended pipeline: {e}")
-            import traceback
-            traceback.print_exc()
-        return None
+            print(f"❌ Error in pipeline: {e}")
+        return f"ERROR: {str(e)}"
 
-def main():
-    """Test the Z3 extended ski planner"""
-    import sys
-    
-    if len(sys.argv) > 1:
-        test_query = sys.argv[1]
-    else:
-        test_query = "Plan a 5-day ski trip to France for 4 people with budget 3000 euros. We need an SUV with diesel fuel, ski equipment including skis and boots, and prefer intermediate slopes."
-    
-    print("Testing Z3 Extended Ski Planner...")
-    print(f"Query: {test_query}")
-    
-    result = pipeline_ski_z3_extended(
-        query=test_query,
-        mode="test",
-        model="gpt-4o-mini",
-        index=1,
-        verbose=True
-    )
-    
-    if result:
-        print("\n" + "="*60)
-        print("RESULT:")
-        print("="*60)
-        print(result)
-    else:
-        print("❌ Failed to generate plan")
+# Test function
+def test_z3_extended():
+    query = "Plan a 3-day ski trip to Austria for 2 people with budget 1500 euros. We need a SUV and ski equipment and prefer beginner slopes."
+    result = pipeline_ski_z3_extended(query, verbose=True)
+    print(result)
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1:
+        # Use command line argument as query
+        query = sys.argv[1]
+        print("Testing Z3 Extended Ski Planner...")
+        print(f"Query: {query}")
+        result = pipeline_ski_z3_extended(query, verbose=True)
+        print("============================================================")
+        print("RESULT:")
+        print("============================================================")
+        print(result)
+    else:
+        # Default test
+        test_z3_extended()

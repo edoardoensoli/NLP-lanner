@@ -166,7 +166,7 @@ class QueryParameterExtractor:
             params['days'] = int(days_match.group(1))
         
         # Extract people
-        people_match = re.search(r'(\d+)\s*people', query_lower)
+        people_match = re.search(r'(\d+)\s*(?:people|person)', query_lower)
         if people_match:
             params['people'] = int(people_match.group(1))
         
@@ -287,9 +287,10 @@ class SkiPlannerMetrics:
         violations = []
         
         # Budget constraint
-        if query_params.get('budget') and result.cost:
-            if result.cost > query_params['budget']:
-                violations.append(f"Budget exceeded: €{result.cost:.2f} > €{query_params['budget']}")
+        budget = query_params.get('budget')
+        if budget is not None and result.cost is not None:
+            if result.cost > budget:
+                violations.append(f"Budget exceeded: €{result.cost:.2f} > €{budget}")
         
         # Required car rental
         if query_params.get('car_required'):
@@ -320,7 +321,7 @@ class SkiPlannerMetrics:
         constraints_passed = []
         
         # Budget constraint
-        if query_params.get('budget') and result.cost:
+        if query_params.get('budget') and result.cost is not None:
             constraints_checked.append('budget')
             if result.cost <= query_params['budget']:
                 constraints_passed.append('budget')
@@ -377,8 +378,9 @@ class SkiPlannerMetrics:
                     violations.append("Equipment rental without car rental may be impractical")
         
         # Cost reasonableness for group size
-        if query_params.get('people', 1) > 1 and result.cost:
-            cost_per_person = result.cost / query_params['people']
+        people_count = query_params.get('people') or 1
+        if people_count > 1 and result.cost is not None:
+            cost_per_person = result.cost / people_count
             if cost_per_person < 200:  # Very low cost per person might indicate missing services
                 violations.append(f"Cost per person (€{cost_per_person:.2f}) seems unusually low")
         
@@ -440,22 +442,26 @@ class SkiPlannerMetrics:
             base_cost += days * people * 30  # €30 per person per day for equipment
         
         # Optimality score: how close to reasonable minimum cost
-        if result.cost <= base_cost:
+        if result.cost is not None and result.cost <= base_cost:
             value = 1.0
             passed = True
             details = f"Excellent cost optimization: €{result.cost:.2f} ≤ €{base_cost:.2f}"
-        elif result.cost <= base_cost * 1.3:
+        elif result.cost is not None and result.cost <= base_cost * 1.3:
             value = 0.8
             passed = True
             details = f"Good cost optimization: €{result.cost:.2f} vs €{base_cost:.2f} baseline"
-        elif result.cost <= base_cost * 1.6:
+        elif result.cost is not None and result.cost <= base_cost * 1.6:
             value = 0.6
             passed = True
             details = f"Reasonable cost: €{result.cost:.2f} vs €{base_cost:.2f} baseline"
-        else:
+        elif result.cost is not None:
             value = 0.4
             passed = False
             details = f"High cost: €{result.cost:.2f} vs €{base_cost:.2f} baseline"
+        else:
+            value = 0.0
+            passed = False
+            details = f"No cost information available"
         
         return MetricResult(value, passed, details)
     
@@ -494,6 +500,9 @@ class SkiPlannerMetrics:
         budget = query_params.get('budget')
         
         # Cost per person per day
+        if result.cost is None:
+            return MetricResult(0.0, False, "No cost information available")
+            
         cost_per_person_per_day = result.cost / (days * people)
         
         # Define reasonable ranges
@@ -515,7 +524,7 @@ class SkiPlannerMetrics:
             details = f"Very expensive: €{cost_per_person_per_day:.2f}/person/day"
         
         # Check against budget if provided
-        if budget and result.cost > budget:
+        if budget and result.cost is not None and result.cost > budget:
             value *= 0.5  # Penalize exceeding budget
             passed = False
             details += f" (exceeds budget of €{budget})"

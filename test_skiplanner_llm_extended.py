@@ -13,9 +13,10 @@ class LLMClient:
     def __init__(self, model_name="gpt-4o", fallback_models=None):
         self.model_name = model_name
         self.fallback_models = fallback_models or ["Meta-Llama-3.1-405B-Instruct", "Phi-3-mini-4k-instruct"]
-        self.token = os.getenv("GITHUB_TOKEN")
+        # Try API_TOKEN first (for consistency with benchmark), then GITHUB_TOKEN as fallback
+        self.token = os.getenv("API_TOKEN") or os.getenv("GITHUB_TOKEN")
         if not self.token:
-            raise ValueError(f"GitHub token not found. Please set the GITHUB_TOKEN environment variable.")
+            raise ValueError(f"API token not found. Please set the API_TOKEN or GITHUB_TOKEN environment variable.")
         self.base_url = "https://models.inference.ai.azure.com"
         self.headers = {
             'Authorization': f'Bearer {self.token}',

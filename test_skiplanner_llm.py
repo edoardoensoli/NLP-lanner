@@ -10,16 +10,27 @@ load_dotenv()
 
 
 class LLMClient:
-    def __init__(self, model_name="DeepSeek-R1"):
+    def __init__(self, model_name="gpt-4o", fallback_models=None):
         self.model_name = model_name
+        self.fallback_models = fallback_models or ["Meta-Llama-3.1-405B-Instruct", "Phi-3-mini-4k-instruct"]
         self.token = os.getenv("GITHUB_TOKEN")
         if not self.token:
-            raise ValueError("GitHub token not found. Please set the GITHUB_TOKEN environment variable.")
+            raise ValueError(f"GitHub token not found. Please set the GITHUB_TOKEN environment variable.")
         self.base_url = "https://models.inference.ai.azure.com"
         self.headers = {
             'Authorization': f'Bearer {self.token}',
             'Content-Type': 'application/json'
         }
+
+    def _get_token_for_model(self, model_name):
+        if model_name == "openai/gpt-4.1":
+            return os.getenv("GPT4_API_KEY")
+        elif model_name.startswith("meta/meta-llama"):
+            return os.getenv("LLAMA_API_KEY")
+        elif model_name.startswith("microsoft/phi-4"):
+            return os.getenv("PHI4_API_KEY")
+        else:
+            return None
 
     def _query_api(self, prompt):
         url = f"{self.base_url}/chat/completions"
@@ -46,8 +57,25 @@ class LLMClient:
             data = response.json()
             return data['choices'][0]['message']['content']
         except requests.exceptions.RequestException as e:
-            print(f"Error calling LLM API: {e}")
+            print(f"Error calling LLM API with model {self.model_name}: {e}")
             return None
+
+    def query_with_fallback(self, prompt):
+        result = self._query_api(prompt)
+        if result:
+            return result
+
+        for fallback_model in self.fallback_models:
+            print(f"Trying fallback model: {fallback_model}")
+            self.model_name = fallback_model
+            self.token = self._get_token_for_model(fallback_model)
+            self.headers['Authorization'] = f'Bearer {self.token}'
+            result = self._query_api(prompt)
+            if result:
+                return result
+
+        print("All models failed.")
+        return None
 
     def query_to_json_response(self, query):
         # Load the prompt template
@@ -70,7 +98,7 @@ The JSON should include these fields:
 Query: {query}
 
 JSON:"""
-        return self._query_api(prompt)
+        return self.query_with_fallback(prompt)
 
 
 def get_llm_response(query, llm):
@@ -218,7 +246,7 @@ def pipeline_ski(query, llm, resorts_df):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--query", type=str, default="I want to go skiing in France with my family of 4 for 7 days. Our budget is 5000 EUR and we prefer easy slopes and good scenery.", help="Input query for the travel planner.")
-    parser.add_argument("--model", type=str, default="jambda-1.5-large", help="Model to use for generating responses (e.g., jambda-1.5-large, DeepSeek-R1).")
+    parser.add_argument("--model", type=str, default="gpt-4o", help="Model to use for generating responses (e.g., gpt-4o, Meta-Llama-3.1-405B-Instruct).")
     parser.add_argument("--resorts_csv", type=str, default="dataset_ski/resorts/resorts.csv", help="Path to the ski resorts CSV file.")
     args = parser.parse_args()
 

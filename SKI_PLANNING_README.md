@@ -15,6 +15,80 @@ The base architecture from the LLM_Formal_Travel_Planner has been modified to su
   - **Resort**: Ski resort location with ski pass costs included
   - **Accommodation**: Lodging/hotel costs separate from resort activities
 
+## Environment Setup
+
+To run the ski planning framework, you need to set up a Python virtual environment and install the required dependencies.
+
+### Creating Virtual Environment
+
+#### On Windows (PowerShell)
+```powershell
+# Navigate to the project directory
+cd C:\path\to\NLP-lanner
+
+# Create virtual environment
+python -m venv nlp-lanner-env
+
+# Activate virtual environment
+.\nlp-lanner-env\Scripts\Activate.ps1
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+#### On macOS/Linux
+```bash
+# Navigate to the project directory
+cd /path/to/NLP-lanner
+
+# Create virtual environment
+python3 -m venv nlp-lanner-env
+
+# Activate virtual environment
+source nlp-lanner-env/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Dependencies
+
+The project requires the following Python packages (specified in `requirements.txt`):
+
+- `langchain==0.1.4` - LLM framework
+- `langchain-community` - Community extensions for Langchain
+- `pandas==2.0.1` - Data manipulation and analysis
+- `tiktoken==0.4.0` - Tokenizer for OpenAI models
+- `openai==0.27.2` - OpenAI API client
+- `langchain_google_genai==0.0.4` - Google Generative AI integration
+- `gradio==3.50.2` - Web interface framework
+- `datasets==2.15.0` - Dataset handling library
+- `z3-solver` - SMT constraint solver
+- `anthropic` - Anthropic API client
+- `mistralai==0.4.2` - Mistral AI API client
+
+### Activating Environment
+
+Always activate the virtual environment before running the ski planner:
+
+```powershell
+# Windows
+.\nlp-lanner-env\Scripts\Activate.ps1
+
+# macOS/Linux
+source nlp-lanner-env/bin/activate
+```
+
+You should see `(nlp-lanner-env)` in your terminal prompt indicating the environment is active.
+
+### Running the Ski Planner
+
+Once the environment is activated and dependencies are installed, you can run the ski planner:
+
+```bash
+python test_skiplanner.py --query "Plan a 3-day ski trip to Cortina for 2 people with budget 1500 euros"
+```
+
 ## Framework Architecture
 
 ### Core Components
@@ -183,10 +257,6 @@ The framework supports natural language queries in multiple languages:
 ### English Examples
 - "Plan a 7-day ski trip to Switzerland for 3 people with transportation and equipment rental for 2 people"
 - "Luxury 5-day ski vacation to Austria with SUV rental and intermediate slopes"
-
-### Italian Examples
-- "Pianifica una vacanza sci di 5 giorni in Austria per 3 persone con budget 2500 euro"
-- "Trova un resort in Svizzera accessibile in treno con piste rosse"
 
 ### Supported Parameters
 - Destination (resort/country)
