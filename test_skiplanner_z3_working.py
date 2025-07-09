@@ -127,10 +127,7 @@ Extract:
 - days: number of days for the trip
 - people: number of people
 - budget: budget amount in euros (number only)
-- special_requirements: list of special requirements. Look for phrases like:
-  * "need car rental", "car rental", "rent a car", "rental car" → add "car rental"
-  * "need equipment", "equipment rental", "rent equipment", "ski equipment" → add "equipment"
-  * "multiple resorts", "visit multiple" → add "multiple_resorts"
+- special_requirements: list of special requirements (car rental, equipment, etc.)
 
 Return only valid JSON in this format:
 {{"domain": "ski", "destination": "resort_name", "days": 3, "people": 2, "budget": 1500, "special_requirements": []}}
@@ -165,29 +162,6 @@ def load_resort_data():
     except Exception as e:
         print(f"Error loading resort data: {e}")
         return pd.DataFrame()
-
-def extract_special_requirements_fallback(query: str) -> list:
-    """Fallback method to extract special requirements using regex"""
-    requirements = []
-    query_lower = query.lower()
-    
-    # Check for car rental requirements
-    car_patterns = [
-        r'need.*car.*rental', r'car.*rental', r'rent.*car', r'rental.*car',
-        r'need.*car', r'want.*car', r'require.*car'
-    ]
-    if any(re.search(pattern, query_lower) for pattern in car_patterns):
-        requirements.append('car rental')
-    
-    # Check for equipment requirements
-    equipment_patterns = [
-        r'need.*equipment', r'equipment.*rental', r'rent.*equipment', 
-        r'ski.*equipment', r'equipment.*rent', r'need.*ski.*gear'
-    ]
-    if any(re.search(pattern, query_lower) for pattern in equipment_patterns):
-        requirements.append('equipment')
-    
-    return requirements
 
 def pipeline_ski(query, mode, model, index, model_version=None, verbose=False, fallback_models=None):
     """Z3-based ski trip planning pipeline"""
@@ -269,12 +243,6 @@ def pipeline_ski(query, mode, model, index, model_version=None, verbose=False, f
             budget = 1000000 # A large number for "no budget"
             
         special_requirements = query_json.get('special_requirements', [])
-        
-        # Fallback: if special_requirements is empty, use regex-based extraction
-        if not special_requirements:
-            special_requirements = extract_special_requirements_fallback(query)
-            if special_requirements and verbose:
-                print(f"🔄 Using fallback parsing for special requirements: {special_requirements}")
         
         # Step 2: Set up Z3 solver
         if verbose:
@@ -407,14 +375,8 @@ def pipeline_ski(query, mode, model, index, model_version=None, verbose=False, f
             var = Bool(f"car_{i}")
             car_vars.append(var)
         
-        # At most one car (car rental is optional unless specifically required)
+        # At most one car (car rental is optional)
         solver.add(Sum([If(var, 1, 0) for var in car_vars]) <= 1)
-        
-        # If car rental is required, ensure at least one car is selected
-        if 'car rental' in special_requirements:
-            solver.add(Sum([If(var, 1, 0) for var in car_vars]) >= 1)
-            if verbose:
-                print("✅ Added constraint: Car rental is required")
         
         # Cost calculation using real data with minimal fallbacks
         total_cost = Int('total_cost')
@@ -631,14 +593,7 @@ Data Sources: {'Real API data' if not any(fallback_used.values()) else 'Mixed AP
 
 def main():
     """Test the Z3 ski planner"""
-    import sys
-    
-    # Use command line argument if provided, otherwise use default
-    if len(sys.argv) > 1:
-        test_query = sys.argv[1]
-    else:
-        test_query = "Plan a 3-day ski trip to Livigno for 2 people with budget 1500 euros"
-    
+    test_query = "Plan a 3-day ski trip to Livigno for 2 people with budget 1500 euros"
     print("Testing Z3 Ski Planner...")
     print(f"Query: {test_query}")
     

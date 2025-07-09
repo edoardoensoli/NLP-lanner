@@ -162,10 +162,7 @@ Extract:
 - days: number of days for the trip
 - people: number of people
 - budget: budget amount in euros (number only)
-- special_requirements: list of special requirements. Look for phrases like:
-  * "need car rental", "car rental", "rent a car", "rental car" → add "car rental"
-  * "need equipment", "equipment rental", "rent equipment", "ski equipment" → add "equipment"
-  * "multiple resorts", "visit multiple" → add "multiple_resorts"
+- special_requirements: list of special requirements (car rental, equipment, etc.)
 
 Return only valid JSON in this format:
 {{"domain": "ski", "destination": "resort_name", "days": 3, "people": 2, "budget": 1500, "special_requirements": []}}
@@ -602,7 +599,7 @@ class SkiPlannerGurobi:
             if self.verbose:
                 print("Constraint added: Must rent a car.")
         
-        if query_json.get("equipment") or "equipment" in query_json.get("special_requirements", []):
+        if query_json.get("equipment"):
             num_equipment_sets = people
             model.addConstr(gp.quicksum(variables['equipment']) >= num_equipment_sets, "must_rent_equipment")
             if self.verbose:
@@ -750,16 +747,6 @@ class SkiPlannerGurobi:
             print("Destination not specified in the query.")
             return
 
-        # Apply fallback parsing for special requirements if needed
-        special_requirements = query_json.get('special_requirements', [])
-        if not special_requirements:
-            original_query = query_json.get('query', '')
-            fallback_requirements = extract_special_requirements_fallback(original_query)
-            if fallback_requirements:
-                query_json['special_requirements'] = fallback_requirements
-                if self.verbose:
-                    print(f"🔄 Using fallback parsing for special requirements: {fallback_requirements}")
-
         # Filter resorts and reset index to ensure it's 0-based
         self.filtered_resorts = self.ski_resorts.run(destination=destination, query=f"Find ski resorts in or near {destination}").reset_index(drop=True)
         
@@ -828,9 +815,6 @@ def pipeline_ski(query: str, mode: str, model: str, index: int, model_version: s
         query_json = planner.query_to_json(query)
         if not query_json:
             return "Failed to convert query to JSON."
-        
-        # Store original query for fallback parsing
-        query_json['query'] = query
 
         planner.run_gurobi_planner(query_json)
 
@@ -872,26 +856,3 @@ def parse_and_extract_json(response_text):
     except Exception as e:
         print(f"Error parsing JSON: {e}")
         return None
-
-def extract_special_requirements_fallback(query: str) -> list:
-    """Fallback method to extract special requirements using regex"""
-    requirements = []
-    query_lower = query.lower()
-    
-    # Check for car rental requirements
-    car_patterns = [
-        r'need.*car.*rental', r'car.*rental', r'rent.*car', r'rental.*car',
-        r'need.*car', r'want.*car', r'require.*car'
-    ]
-    if any(re.search(pattern, query_lower) for pattern in car_patterns):
-        requirements.append('car rental')
-    
-    # Check for equipment requirements
-    equipment_patterns = [
-        r'need.*equipment', r'equipment.*rental', r'rent.*equipment', 
-        r'ski.*equipment', r'equipment.*rent', r'need.*ski.*gear'
-    ]
-    if any(re.search(pattern, query_lower) for pattern in equipment_patterns):
-        requirements.append('equipment')
-    
-    return requirements

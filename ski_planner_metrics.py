@@ -53,68 +53,57 @@ class PlannerResult:
             return
             
         # Extract resort name - handle both Z3 and Gurobi formats
-        resort_patterns = [
-            r'\*\*Selected Resort:\*\*\s*(.+?)(?:\n|$)',  # Gurobi format
-            r'SELECTED RESORT:\s*(.+?)(?:\n|$)',           # Z3 format
-            r'Resort:\s*(.+?)(?:\n|$)'                     # Generic format
-        ]
-        for pattern in resort_patterns:
-            resort_match = re.search(pattern, self.plan_text)
-            if resort_match:
-                self.resort_name = resort_match.group(1).strip()
-                break
+        resort_match = re.search(r'\*\*Selected Resort:\*\*\s*(.+?)(?:\n|$)', self.plan_text)
+        if not resort_match:
+            # Try Z3 format
+            resort_match = re.search(r'SELECTED RESORT:\s*(.+?)(?:\n|$)', self.plan_text)
+        if resort_match:
+            self.resort_name = resort_match.group(1).strip()
         
-        # Extract cost - handle multiple formats
-        cost_patterns = [
-            r'\*\*Total Cost:\*\*\s*€(\d+(?:\.\d+)?)',     # Gurobi format
-            r'TOTAL COST:\s*€(\d+(?:\.\d+)?)',             # Z3 format
-            r'Total Cost:\s*€(\d+(?:\.\d+)?)',             # Generic format
-        ]
-        for pattern in cost_patterns:
-            cost_match = re.search(pattern, self.plan_text)
-            if cost_match:
-                self.cost = float(cost_match.group(1))
-                break
+        # Extract cost - handle both formats
+        cost_match = re.search(r'\*\*Total Cost:\*\* â‚¬(\d+(?:\.\d+)?)', self.plan_text)
+        if not cost_match:
+            # Try Z3 format (with exact encoding)
+            cost_match = re.search(r'- TOTAL COST: â‚¬(\d+(?:\.\d+)?)', self.plan_text)
+        if cost_match:
+            self.cost = float(cost_match.group(1))
         
         # Extract accommodation - handle both formats
-        acc_patterns = [
-            r'#### Accommodation\n(.*?)(?=####|$)',        # Gurobi format
-            r'RESORT DETAILS:\n(.*?)(?=\n[A-Z]|$)',        # Z3 format
-            r'ACCOMMODATION:\n(.*?)(?=\n[A-Z]|$)'          # Alternative Z3 format
-        ]
-        for pattern in acc_patterns:
-            acc_section = re.search(pattern, self.plan_text, re.DOTALL)
-            if acc_section:
-                self.accommodation = acc_section.group(1).strip()
-                break
+        acc_section = re.search(r'#### Accommodation\n(.*?)(?=####|$)', self.plan_text, re.DOTALL)
+        if not acc_section:
+            # For Z3 format, if we have a resort selected, consider that as accommodation
+            if self.resort_name:
+                self.accommodation = f"Stay at {self.resort_name}"
+            # Also try to find accommodation cost in breakdown
+            acc_cost_match = re.search(r'Accommodation:\s*€(\d+(?:\.\d+)?)', self.plan_text)
+            if acc_cost_match:
+                cost_value = acc_cost_match.group(1)
+                if self.accommodation:
+                    self.accommodation += f" (€{cost_value})"
+                else:
+                    self.accommodation = f"Accommodation cost: €{cost_value}"
+        if acc_section:
+            self.accommodation = acc_section.group(1).strip()
         
-        # If no accommodation section found but we have a resort name, consider it as accommodation
-        if not self.accommodation and self.resort_name:
-            self.accommodation = f"Resort: {self.resort_name}"
-        
-        # Extract car rental
+        # Extract car rental - handle both formats
         car_section = re.search(r'#### Car Rental\n(.*?)(?=####|$)', self.plan_text, re.DOTALL)
+        if not car_section:
+            # Try Z3 format
+            car_match = re.search(r'CAR RENTAL:\s*\n(.+?)(?:\n\n|\nEQUIPMENT|\nCOST|\n$)', self.plan_text, re.DOTALL)
+            if car_match:
+                self.car_rental = car_match.group(1).strip()
         if car_section:
             self.car_rental = car_section.group(1).strip()
-        else:
-            # Try Z3 format
-            car_section = re.search(r'CAR RENTAL:\n(.*?)(?=\n[A-Z]|$)', self.plan_text, re.DOTALL)
-            if car_section:
-                self.car_rental = car_section.group(1).strip()
-            elif 'No car rental' in self.plan_text or 'CAR RENTAL:\n- No car rental' in self.plan_text:
-                self.car_rental = "No car rental selected"
         
-        # Extract equipment rental
+        # Extract equipment rental - handle both formats
         equip_section = re.search(r'#### Equipment Rental\n(.*?)(?=####|$)', self.plan_text, re.DOTALL)
+        if not equip_section:
+            # Try Z3 format
+            equip_match = re.search(r'EQUIPMENT RENTAL:\s*\n(.+?)(?:\n\n|\nCAR|\nCOST|\n$)', self.plan_text, re.DOTALL)
+            if equip_match:
+                self.equipment_rental = equip_match.group(1).strip()
         if equip_section:
             self.equipment_rental = equip_section.group(1).strip()
-        else:
-            # Try Z3 format
-            equip_section = re.search(r'EQUIPMENT RENTAL:\n(.*?)(?=\n[A-Z]|$)', self.plan_text, re.DOTALL)
-            if equip_section:
-                self.equipment_rental = equip_section.group(1).strip()
-            elif 'No equipment rental' in self.plan_text or 'EQUIPMENT RENTAL:\n- No equipment rental' in self.plan_text:
-                self.equipment_rental = "No equipment rental selected"
 
 
 class QueryParameterExtractor:
@@ -161,7 +150,7 @@ class QueryParameterExtractor:
                 break
         
         # Extract days
-        days_match = re.search(r'(\d+)\s*day', query_lower)
+        days_match = re.search(r'(\d+)\s*[-\s]*days?', query_lower)
         if days_match:
             params['days'] = int(days_match.group(1))
         
@@ -377,10 +366,15 @@ class SkiPlannerMetrics:
                     violations.append("Equipment rental without car rental may be impractical")
         
         # Cost reasonableness for group size
-        if query_params.get('people', 1) > 1 and result.cost:
-            cost_per_person = result.cost / query_params['people']
-            if cost_per_person < 200:  # Very low cost per person might indicate missing services
-                violations.append(f"Cost per person (€{cost_per_person:.2f}) seems unusually low")
+        people_count = query_params.get('people') or 1
+        if people_count and people_count > 1 and result.cost:
+            try:
+                cost_per_person = result.cost / people_count
+                if cost_per_person < 200:  # Very low cost per person might indicate missing services
+                    violations.append(f"Cost per person (€{cost_per_person:.2f}) seems unusually low")
+            except (TypeError, ZeroDivisionError):
+                # Skip this check if we can't calculate cost per person
+                pass
         
         passed = len(violations) == 0
         value = 1.0 if passed else max(0.0, 1.0 - len(violations) * 0.5)  # Partial credit
@@ -418,26 +412,87 @@ class SkiPlannerMetrics:
         
         return MetricResult(value, passed, details)
     
+    def _get_cost_baseline(self, query_params: Dict[str, Any]) -> float:
+        """Calculate baseline cost based on destination and trip characteristics"""
+        days = query_params.get('days') or 3
+        people = query_params.get('people') or 1
+        destination = query_params.get('destination', '') or ''
+        destination = destination.lower()
+        
+        # Use the detailed destination cost baseline
+        base_cost = self._get_destination_cost_baseline(destination, days, people)
+        
+        # Add estimated costs for required services
+        if query_params.get('car_required'):
+            base_cost += days * 50  # €50 per day for car
+        
+        if query_params.get('equipment_required'):
+            base_cost += days * people * 30  # €30 per person per day for equipment
+        
+        return base_cost
+    
+    def _get_destination_cost_baseline(self, destination: str, days: int, people: int) -> float:
+        """Get cost baseline based on destination and trip type"""
+        # Define baseline cost per person per day by destination type
+        cost_baselines = {
+            # Swiss resorts (premium)
+            'switzerland': 250,
+            'zermatt': 280,
+            'st. moritz': 300,
+            'verbier': 270,
+            'davos': 250,
+            'saas-fee': 240,
+            
+            # Italian resorts (mid-range)
+            'italy': 200,
+            'livigno': 180,
+            'cortina': 220,
+            'val gardena': 200,
+            'madonna di campiglio': 210,
+            'courmayeur': 200,
+            
+            # Austrian resorts (mid-range)
+            'austria': 190,
+            'innsbruck': 200,
+            'salzburg': 180,
+            
+            # French resorts (premium)
+            'france': 230,
+            'chamonix': 250,
+            'val d\'isère': 270,
+            'courchevel': 280,
+            
+            # Norwegian resorts (premium)
+            'norway': 240,
+            'hemsedal': 220,
+            'geilo': 230,
+            
+            # Default for unknown destinations
+            'default': 200
+        }
+        
+        # Find matching baseline
+        baseline_per_person_per_day = cost_baselines.get('default', 200)
+        
+        if destination:
+            destination_lower = destination.lower()
+            # Check for exact matches first
+            for key in cost_baselines:
+                if key in destination_lower:
+                    baseline_per_person_per_day = cost_baselines[key]
+                    break
+        
+        # Calculate base cost
+        base_cost = days * people * baseline_per_person_per_day
+        return base_cost
+
     def _evaluate_optimality(self, result: PlannerResult, query_params: Dict[str, Any]) -> MetricResult:
         """Evaluate cost optimality (lower cost is better)"""
         if result.result_type != 'optimal' or not result.cost:
             return MetricResult(0.0, False, "No optimal solution with cost to evaluate")
         
-        # Estimate reasonable cost range based on query parameters
-        days = query_params.get('days') or 3
-        people = query_params.get('people') or 1
-        budget = query_params.get('budget') or 3000
-        
-        # Base cost estimation
-        base_cost = days * people * 200  # €200 per person per day baseline
-        
-        # Car rental adds cost
-        if query_params.get('car_required'):
-            base_cost += days * 50  # €50 per day for car
-        
-        # Equipment rental adds cost
-        if query_params.get('equipment_required'):
-            base_cost += days * people * 30  # €30 per person per day for equipment
+        # Use configurable baseline instead of hardcoded value
+        base_cost = self._get_cost_baseline(query_params)
         
         # Optimality score: how close to reasonable minimum cost
         if result.cost <= base_cost:
@@ -679,6 +734,58 @@ class SkiPlannerMetrics:
         # Evaluate metrics
         metrics = self.evaluate_single_result(result)
         
+        # Extract query parameters for detailed constraint evaluation
+        query_params = self.query_extractor.extract_parameters(query)
+        
+        # Evaluate individual constraints properly
+        budget_satisfied = True
+        if query_params.get('budget') and total_cost > 0:
+            budget_satisfied = total_cost <= query_params['budget']
+        
+        # Check if required services are provided based on plan text
+        car_required = query_params.get('car_required', False)
+        equipment_required = query_params.get('equipment_required', False)
+        
+        # Only evaluate constraints that are actually required
+        car_satisfied = None  # Not applicable if not required
+        if car_required:
+            car_satisfied = plan_text and ('car rental' in plan_text.lower() or 'rented car' in plan_text.lower()) and 'no car rental' not in plan_text.lower()
+        
+        equipment_satisfied = None  # Not applicable if not required
+        if equipment_required:
+            equipment_satisfied = plan_text and ('equipment' in plan_text.lower() or 'skis' in plan_text.lower() or 'boots' in plan_text.lower()) and 'no equipment' not in plan_text.lower()
+        
+        # Resort constraint - check if a resort is mentioned
+        resort_satisfied = plan_text and any(keyword in plan_text.lower() for keyword in ['resort', 'hotel', 'accommodation', 'stay'])
+        
+        # Days constraint - assume satisfied if plan mentions duration
+        days_satisfied = plan_text and (str(query_params.get('days', 3)) in plan_text or 'day' in plan_text.lower())
+        
+        # People constraint - assume satisfied if cost is reasonable for group size
+        people_satisfied = True
+        people_count = query_params.get('people') or 1
+        if people_count > 1 and total_cost > 0:
+            try:
+                cost_per_person = total_cost / people_count
+                people_satisfied = cost_per_person >= 50  # Minimum reasonable cost per person
+            except (TypeError, ZeroDivisionError):
+                people_satisfied = True  # Default to satisfied if we can't calculate
+        
+        # Build constraint details dictionary - only include applicable constraints
+        constraint_details = {
+            'budget_constraint': budget_satisfied,
+            'dates_constraint': days_satisfied,
+            'people_constraint': people_satisfied,
+            'resort_constraint': resort_satisfied,
+            'days_constraint': days_satisfied,  # Same as dates for now
+        }
+        
+        # Only add car/equipment constraints if they were actually required
+        if car_required:
+            constraint_details['car_constraint'] = car_satisfied
+        if equipment_required:
+            constraint_details['equipment_constraint'] = equipment_satisfied
+        
         # Convert to flat dictionary with float values
         return {
             'final_pass_rate': metrics['final_pass_rate'].value,
@@ -690,13 +797,7 @@ class SkiPlannerMetrics:
             'optimality': metrics['optimality'].value,
             'runtime': execution_time,
             'cost': total_cost,
-            'constraint_details': {
-                'budget_constraint': metrics['hard_constraint_pass_rate'].passed,
-                'dates_constraint': True,  # Simplified for now
-                'people_constraint': True,  # Simplified for now
-                'resort_constraint': True,  # Simplified for now
-                'days_constraint': True,    # Simplified for now
-            }
+            'constraint_details': constraint_details
         }
 
 

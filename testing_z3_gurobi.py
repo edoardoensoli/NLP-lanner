@@ -770,10 +770,15 @@ def run_batch_benchmark(queries: List[str], available_models: List[str], verbose
         # Print summary
         print_comparison_summary(comparison)
 
-        # Add a delay to avoid hitting API rate limits, especially with a powerful model
+        # Add adaptive delay to avoid hitting API rate limits
         if i < len(queries):
-            delay = 10 # seconds
+            # Longer delay for more queries to be safer with rate limits
+            base_delay = 30  # Increased base delay 
+            query_factor = min(i * 3, 60)  # Increase delay more aggressively, max 60s additional
+            delay = base_delay + query_factor
+            
             print(f"\n...waiting {delay} seconds before next query to avoid rate limits...")
+            time.sleep(delay)
             time.sleep(delay)
 
     return results
@@ -989,11 +994,12 @@ def is_rate_limit_error(error_message: str) -> bool:
         return False
     
     rate_limit_indicators = [
-        "429",
-        "rate limit",
-        "too many requests",
-        "quota exceeded",
-        "requests per"
+        "429", "rate limit", "rate_limit", "rateLimitExceeded",
+        "too many requests", "quota exceeded", "requests per", 
+        "throttled", "rate limiting", "per minute", "per hour", 
+        "per day", "usage limit", "api limit", "limit exceeded",
+        "try again later", "please retry", "overloaded", 
+        "temporarily unavailable", "service unavailable"
     ]
     
     error_lower = error_message.lower()
@@ -1013,26 +1019,44 @@ def run_single_planner_with_fallback(planner_func, planner_name: str, query: str
                                    available_models: List[str], verbose: bool = False) -> SkiBenchmarkResult:
     """Run a single planner with model fallback on rate limits"""
     
+    attempt_count = 0
+    max_attempts_per_model = 2  # Allow retry on transient errors
+    
     for model_name in available_models:
-        print(f"  Trying model: {model_name}")
-        
-        result = run_single_planner(planner_func, planner_name, query, model_name, verbose, available_models)
-        
-        if result.success:
-            result.model_used = model_name
-            return result
-        
-        if result.error_message and is_rate_limit_error(result.error_message):
-            print(f"  ⚠️  Rate limit hit for {model_name}, trying next model...")
-            continue
-        else:
-            # Non-rate-limit error, return the result
-            result.model_used = model_name
-            return result
+        for attempt in range(max_attempts_per_model):
+            if attempt > 0:
+                delay = min(2 ** attempt, 10)  # Exponential backoff, max 10s
+                print(f"  Retrying {model_name} after {delay}s delay...")
+                time.sleep(delay)
+            else:
+                print(f"  Trying model: {model_name}")
+            
+            result = run_single_planner(planner_func, planner_name, query, model_name, verbose, available_models)
+            attempt_count += 1
+            
+            if result.success:
+                result.model_used = model_name
+                if attempt_count > 1:
+                    print(f"  ✅ Success with {model_name} after {attempt_count} attempts")
+                return result
+            
+            if result.error_message and is_rate_limit_error(result.error_message):
+                print(f"  ⚠️  Rate limit hit for {model_name} (attempt {attempt + 1}/{max_attempts_per_model})")
+                if attempt < max_attempts_per_model - 1:
+                    continue  # Retry this model
+                else:
+                    print(f"  ❌ Moving to next model after {max_attempts_per_model} failed attempts")
+                    break  # Move to next model
+            else:
+                # Non-rate-limit error, return the result (don't retry)
+                print(f"  ❌ Non-rate-limit error with {model_name}: {result.error_message[:100]}...")
+                result.model_used = model_name
+                return result
     
     # All models failed
+    print(f"  💥 All {len(available_models)} models failed after {attempt_count} total attempts")
     result.model_used = available_models[0] if available_models else "unknown"
-    result.error_message = f"All models failed. Last error: {result.error_message}"
+    result.error_message = f"All {len(available_models)} models failed. Total attempts: {attempt_count}"
     return result
 
 def main():
