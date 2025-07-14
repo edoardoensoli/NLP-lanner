@@ -110,8 +110,6 @@ OPENAI_API_KEY=your_openai_key
 
 ## 🔧 Setup Environment
 
-## 🔧 Setup Environment
-
 1. Create a conda environment and install dependency:
     ```bash
     conda create -n fmtravelplanner python=3.9
@@ -159,7 +157,6 @@ python debug_constraints.py
 python test_ski_apis.py
 ```
 
-## 📚 Running Original Travel Planner
 ## 📚 Running Original Travel Planner
 
 #### Satisfiable Plan Solving 
